@@ -20,15 +20,15 @@ connected to PostgreSQL, one trivial `/health` endpoint. The file data-path is a
 
 ## Results
 
-| Container memory limit | Outcome | Observed usage |
-|---|---|---|
-| unlimited | starts | 296.9 MiB (JVM relaxes to host RAM) |
-| **50 MB** | **OOM — does not start** | — |
-| **96 MB** | **OOM — does not start** | — |
-| 128 MB | starts | 125.9 MiB (at the ceiling) |
-| 160 MB | starts | 159.7 MiB |
-| 200 MB | starts | 199.7 MiB |
-| 256 MB | starts | 241.4 MiB |
+| Container memory limit |         Outcome          |           Observed usage            |
+|------------------------|--------------------------|-------------------------------------|
+| unlimited              | starts                   | 296.9 MiB (JVM relaxes to host RAM) |
+| **50 MB**              | **OOM — does not start** | —                                   |
+| **96 MB**              | **OOM — does not start** | —                                   |
+| 128 MB                 | starts                   | 125.9 MiB (at the ceiling)          |
+| 160 MB                 | starts                   | 159.7 MiB                           |
+| 200 MB                 | starts                   | 199.7 MiB                           |
+| 256 MB                 | starts                   | 241.4 MiB                           |
 
 ## Conclusion
 

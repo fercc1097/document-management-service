@@ -40,16 +40,16 @@ Below is the reasoning distilled to its trade-offs.
 at rest, so the 50MB container limit is unreachable if file bytes also flow through the
 service. Everything below follows from *keeping the bytes out of the service*.
 
-| # | Decision | Trade-off accepted | How it scales |
-|---|----------|--------------------|---------------|
-| 1 | **Upload via presigned PUT** (client → MinIO directly), not a streaming proxy | Service is blind to file content; two-step upload flow | Presigned *multipart* for files > 5GB |
-| 2 | **Presigned multipart rejected** (YAGNI) | — (500MB < 5GB single-PUT ceiling) | Adopt if the size ceiling rises |
-| 3 | **Explicit confirmation** `POST /upload/{id}/complete` (`PENDING`→`COMPLETED`) | Depends on the client confirming; possible orphan rows | Event-driven (MinIO bucket notifications) + TTL reconciliation job |
-| 4 | **C-S-R + storage port** (`StoragePort` / `MinioStorageAdapter`) | Slightly more indirection than a bare service | Swap MinIO for real S3 without touching the service |
-| 5 | **Spring Data JPA + Specifications** for dynamic filters | Hibernate adds resting footprint | — (data-path memory risk already removed) |
-| 6 | **Normalized many-to-many tags** with indices | Joins vs a denormalized array | Postgres `text[]` + GIN index for heavy tag search |
-| 7 | **Measured** the 50MB limit: unreachable on the JVM (startup floor ~128MB), so ship tuned JVM at a realistic limit and document the blocker | Does not meet the 50MB limit literally | GraalVM native image (~40–90MB) as the production evolution |
-| 8 | **Minimal validation** (metadata + `statObject`; no content scan) | No magic-byte / antivirus inspection | Add scanning if requirements change |
+| # |                                                                  Decision                                                                   |                   Trade-off accepted                   |                           How it scales                            |
+|---|---------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------|--------------------------------------------------------------------|
+| 1 | **Upload via presigned PUT** (client → MinIO directly), not a streaming proxy                                                               | Service is blind to file content; two-step upload flow | Presigned *multipart* for files > 5GB                              |
+| 2 | **Presigned multipart rejected** (YAGNI)                                                                                                    | — (500MB < 5GB single-PUT ceiling)                     | Adopt if the size ceiling rises                                    |
+| 3 | **Explicit confirmation** `POST /upload/{id}/complete` (`PENDING`→`COMPLETED`)                                                              | Depends on the client confirming; possible orphan rows | Event-driven (MinIO bucket notifications) + TTL reconciliation job |
+| 4 | **C-S-R + storage port** (`StoragePort` / `MinioStorageAdapter`)                                                                            | Slightly more indirection than a bare service          | Swap MinIO for real S3 without touching the service                |
+| 5 | **Spring Data JPA + Specifications** for dynamic filters                                                                                    | Hibernate adds resting footprint                       | — (data-path memory risk already removed)                          |
+| 6 | **Normalized many-to-many tags** with indices                                                                                               | Joins vs a denormalized array                          | Postgres `text[]` + GIN index for heavy tag search                 |
+| 7 | **Measured** the 50MB limit: unreachable on the JVM (startup floor ~128MB), so ship tuned JVM at a realistic limit and document the blocker | Does not meet the 50MB limit literally                 | GraalVM native image (~40–90MB) as the production evolution        |
+| 8 | **Minimal validation** (metadata + `statObject`; no content scan)                                                                           | No magic-byte / antivirus inspection                   | Add scanning if requirements change                                |
 
 **Contract deviations (conscious):** the presigned flow returns the upload URL in the
 `201` body and adds a `/complete` endpoint — both absent from the provided OpenAPI
@@ -75,12 +75,12 @@ from changing the base technology.** There are two distinct worlds:
 - **Lightweight server/cloud Java (our case):** tens of MB are reached with the
   following levers, from least to most invasive:
 
-| Lever | What changes | Typical footprint | Cost |
-|-------|--------------|-------------------|------|
-| **JVM tuning** (what we did) | SerialGC, cgroup-aware sizing, `-Xss`, fewer threads | **~128MB floor** here | Low; can't cross the structural floor |
-| **Different JVM: Eclipse OpenJ9** | J9 instead of HotSpot, no code change | ~40–60% less RSS than HotSpot | Another JVM, lower peak throughput |
-| **AOT: GraalVM Native Image** | Compiles the *same* app to a binary; no JVM, no metaspace, no JIT | **~40–90MB** | Slow build + reflection hints |
-| **Native-first framework: Quarkus / Micronaut** | Dependency injection resolved at *build time*, not runtime reflection | **~20–50MB** native | Rewrite the app |
+|                      Lever                      |                             What changes                              |       Typical footprint       |                 Cost                  |
+|-------------------------------------------------|-----------------------------------------------------------------------|-------------------------------|---------------------------------------|
+| **JVM tuning** (what we did)                    | SerialGC, cgroup-aware sizing, `-Xss`, fewer threads                  | **~128MB floor** here         | Low; can't cross the structural floor |
+| **Different JVM: Eclipse OpenJ9**               | J9 instead of HotSpot, no code change                                 | ~40–60% less RSS than HotSpot | Another JVM, lower peak throughput    |
+| **AOT: GraalVM Native Image**                   | Compiles the *same* app to a binary; no JVM, no metaspace, no JIT     | **~40–90MB**                  | Slow build + reflection hints         |
+| **Native-first framework: Quarkus / Micronaut** | Dependency injection resolved at *build time*, not runtime reflection | **~20–50MB** native           | Rewrite the app                       |
 
 **Why this stack is heavy:** Spring Boot + Hibernate + HotSpot is built for throughput
 and developer productivity, not minimal memory. It leans on reflection and dynamic
