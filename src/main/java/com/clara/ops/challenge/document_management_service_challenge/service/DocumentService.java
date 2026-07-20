@@ -7,6 +7,8 @@ import com.clara.ops.challenge.document_management_service_challenge.repository.
 import com.clara.ops.challenge.document_management_service_challenge.storage.*;
 import java.util.*;
 import java.util.stream.Collectors;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -66,6 +68,24 @@ public class DocumentService {
     d.setFileType(obj.contentType());
     d.setStatus(DocumentStatus.COMPLETED);
     documents.save(d);
+  }
+
+  @Transactional(readOnly = true)
+  public Page<DocumentEntity> search(
+      String user, String name, List<String> tagNames, Pageable pageable) {
+    return documents.findAll(DocumentSpecifications.filter(user, name, tagNames), pageable);
+  }
+
+  @Transactional(readOnly = true)
+  public String downloadUrl(UUID id) {
+    DocumentEntity d =
+        documents
+            .findById(id)
+            .orElseThrow(() -> new DocumentNotFoundException("Document " + id + " not found"));
+    if (d.getStatus() != DocumentStatus.COMPLETED) {
+      throw new DocumentNotReadyException("Document " + id + " is not ready");
+    }
+    return storage.presignedGetUrl(d.getMinioPath());
   }
 
   private Set<TagEntity> resolveTags(List<String> names) {

@@ -83,6 +83,23 @@ class DocumentServiceTest {
     assertThatThrownBy(() -> service.complete(id)).isInstanceOf(DocumentNotFoundException.class);
   }
 
+  @Test
+  void downloadUrlReturnsPresignedGetForCompleted() {
+    UUID id = UUID.randomUUID();
+    DocumentEntity d = pending(id, "bob/f.pdf");
+    d.setStatus(DocumentStatus.COMPLETED);
+    when(documents.findById(id)).thenReturn(Optional.of(d));
+    when(storage.presignedGetUrl("bob/f.pdf")).thenReturn("http://get");
+    assertThat(service.downloadUrl(id)).isEqualTo("http://get");
+  }
+
+  @Test
+  void downloadUrlForPendingThrowsNotReady() {
+    UUID id = UUID.randomUUID();
+    when(documents.findById(id)).thenReturn(Optional.of(pending(id, "bob/f.pdf")));
+    assertThatThrownBy(() -> service.downloadUrl(id)).isInstanceOf(DocumentNotReadyException.class);
+  }
+
   private DocumentEntity pending(UUID id, String path) {
     DocumentEntity d = new DocumentEntity();
     d.setId(id);
