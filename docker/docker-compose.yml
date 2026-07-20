@@ -1,41 +1,93 @@
 services:
   postgresql:
     container_name: postgresql_container
-    image: bitnami/postgresql:15.4.0
+    image: postgres:15.4
     ports:
       - "5432:5432"
     networks:
       - batch_network
     volumes:
-      - challenge_postgresql_data:/bitnami/postgresql
+      - challenge_postgresql_data:/var/lib/postgresql/data
       - ./init-scripts:/docker-entrypoint-initdb.d
     environment:
-      - POSTGRESQL_USERNAME={CHANGE_ME}
-      - POSTGRESQL_PASSWORD={CHANGE_ME}
-      - POSTGRESQL_DATABASE=challenge
-      - POSTGRESQL_POSTGRES_PASSWORD={CHANGE_ME} # Password of user "postgres"
+      - POSTGRES_USER=${POSTGRES_USER:-appuser}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-devpass}
+      - POSTGRES_DB=${POSTGRES_DB:-challenge}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-appuser} -d ${POSTGRES_DB:-challenge}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   minio:
     image: minio/minio:latest
     container_name: minio
     restart: always
     ports:
-      - "9000:9000"  # API S3
-      - "9001:9001"  # MinIO Web Console
+      - "9000:9000" # API S3
+      - "9001:9001" # MinIO Web Console
+    networks:
+      - batch_network
     environment:
-      MINIO_ROOT_USER: {CHANGE_ME}
-      MINIO_ROOT_PASSWORD: {CHANGE_ME}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     command: server --console-address ":9001" /data
     volumes:
       - challenge_minio_data:/data
-  # Include all the necessary settings to include a document management service in the stack
-  # Remember to configure this service to limit the memory to 50MB
-  # document-management-service:
-  #    environment:
-  #      - JAVA_OPTS=-Xmx50m -Xms50m
-  #    deploy:
-  #      resources:
-  #        limits:
-  #          memory: 50M
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: creates the bucket the service expects, then exits.
+  createbucket:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - batch_network
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin};
+      mc mb --ignore-existing local/${MINIO_BUCKET:-document-bucket};
+      exit 0;
+      "
+
+  document-management-service:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: document-management-service
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      createbucket:
+        condition: service_completed_successfully
+    ports:
+      - "8080:8080"
+    networks:
+      - batch_network
+    environment:
+      - DB_URL=jdbc:postgresql://postgresql:5432/${POSTGRES_DB:-challenge}
+      - DB_USERNAME=${POSTGRES_USER:-appuser}
+      - DB_PASSWORD=${POSTGRES_PASSWORD:-devpass}
+      # Internal endpoint: server-side stat/remove calls to MinIO inside the compose network.
+      - MINIO_INTERNAL_ENDPOINT=http://minio:9000
+      # Public endpoint: used to SIGN presigned URLs the external client (Postman) will call.
+      - MINIO_PUBLIC_ENDPOINT=http://localhost:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - MINIO_BUCKET=${MINIO_BUCKET:-document-bucket}
+      # 50MB is unreachable on the JVM (measured, see docs/memory-measurement.md); tuned JVM below.
+      - JAVA_OPTS=-XX:MaxRAMPercentage=75 -XX:+UseSerialGC -Xss512k
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
 volumes:
   challenge_postgresql_data:
