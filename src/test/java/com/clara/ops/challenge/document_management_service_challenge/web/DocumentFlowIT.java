@@ -24,13 +24,16 @@ import org.testcontainers.utility.MountableFile;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class DocumentFlowIT {
 
-  @Container static PostgreSQLContainer<?> PG = new PostgreSQLContainer<>("postgres:15.4")
-      .withDatabaseName("challenge")
-      .withCopyFileToContainer(
-          MountableFile.forClasspathResource("db/schema-init.sql"),
-          "/docker-entrypoint-initdb.d/schema-init.sql");
-  @Container static MinIOContainer MINIO =
-      new MinIOContainer("minio/minio:RELEASE.2024-01-16T16-07-38Z");
+  @Container
+  static PostgreSQLContainer<?> PG =
+      new PostgreSQLContainer<>("postgres:15.4")
+          .withDatabaseName("challenge")
+          .withCopyFileToContainer(
+              MountableFile.forClasspathResource("db/schema-init.sql"),
+              "/docker-entrypoint-initdb.d/schema-init.sql");
+
+  @Container
+  static MinIOContainer MINIO = new MinIOContainer("minio/minio:RELEASE.2024-01-16T16-07-38Z");
 
   @DynamicPropertySource
   static void props(DynamicPropertyRegistry r) {
@@ -48,35 +51,47 @@ class DocumentFlowIT {
 
   @BeforeAll
   static void bucket() throws Exception {
-    MinioClient c = MinioClient.builder().endpoint(MINIO.getS3URL())
-        .credentials(MINIO.getUserName(), MINIO.getPassword()).build();
+    MinioClient c =
+        MinioClient.builder()
+            .endpoint(MINIO.getS3URL())
+            .credentials(MINIO.getUserName(), MINIO.getPassword())
+            .build();
     c.makeBucket(MakeBucketArgs.builder().bucket("document-bucket").build());
   }
 
   @Test
   void registerUploadCompleteSearchDownload() throws Exception {
     // register
-    ResponseEntity<Map> reg = rest.postForEntity(base() + "/upload",
-        json("{\"user\":\"alice\",\"name\":\"doc1.pdf\",\"tags\":[\"invoice\"]}"), Map.class);
+    ResponseEntity<Map> reg =
+        rest.postForEntity(
+            base() + "/upload",
+            json("{\"user\":\"alice\",\"name\":\"doc1.pdf\",\"tags\":[\"invoice\"]}"),
+            Map.class);
     assertThat(reg.getStatusCode()).isEqualTo(HttpStatus.CREATED);
     String id = (String) reg.getBody().get("id");
     String putUrl = (String) reg.getBody().get("uploadUrl");
 
     // upload straight to MinIO
     byte[] pdf = "%PDF-1.7 body".getBytes();
-    int put = HttpClient.newHttpClient().send(
-        HttpRequest.newBuilder(URI.create(putUrl))
-            .PUT(HttpRequest.BodyPublishers.ofByteArray(pdf)).build(),
-        HttpResponse.BodyHandlers.discarding()).statusCode();
+    int put =
+        HttpClient.newHttpClient()
+            .send(
+                HttpRequest.newBuilder(URI.create(putUrl))
+                    .PUT(HttpRequest.BodyPublishers.ofByteArray(pdf))
+                    .build(),
+                HttpResponse.BodyHandlers.discarding())
+            .statusCode();
     assertThat(put).isEqualTo(200);
 
     // complete
-    assertThat(rest.postForEntity(base() + "/upload/" + id + "/complete", null, Void.class)
-        .getStatusCode()).isEqualTo(HttpStatus.OK);
+    assertThat(
+            rest.postForEntity(base() + "/upload/" + id + "/complete", null, Void.class)
+                .getStatusCode())
+        .isEqualTo(HttpStatus.OK);
 
     // search finds it
-    ResponseEntity<Map> search = rest.postForEntity(base() + "/search",
-        json("{\"user\":\"alice\"}"), Map.class);
+    ResponseEntity<Map> search =
+        rest.postForEntity(base() + "/search", json("{\"user\":\"alice\"}"), Map.class);
     assertThat(((List<?>) search.getBody().get("documents"))).hasSize(1);
 
     // download returns a url
@@ -84,7 +99,9 @@ class DocumentFlowIT {
     assertThat((String) dl.getBody().get("url")).contains("alice/doc1.pdf");
   }
 
-  private String base() { return "http://localhost:" + port + "/document-management"; }
+  private String base() {
+    return "http://localhost:" + port + "/document-management";
+  }
 
   private HttpEntity<String> json(String body) {
     HttpHeaders h = new HttpHeaders();

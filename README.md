@@ -156,7 +156,32 @@ Ensure that your solution includes the Dockerfile and database schema script, an
 
 ### Additional Comments 💬
 
-If you have any additional notes, explanations, or assumptions regarding your implementation, feel free to include them in this section. This can help provide more context to reviewers.
+Full rationale and trade-offs are in [`SOLUTION.md`](SOLUTION.md). Highlights:
+
+- **Upload uses presigned PUT.** `POST /document-management/upload` (JSON) persists
+  metadata as `PENDING` and returns a presigned PUT URL; the client uploads the PDF
+  **directly to MinIO**; `POST /document-management/upload/{id}/complete` confirms it
+  (reads real size/type via `statObject`) and marks it `COMPLETED`. File bytes never
+  flow through the service, so the memory limit and 10 concurrent 500MB uploads are met
+  by design. This deviates from the contract's `201`-with-no-body and adds a `/complete`
+  endpoint — a conscious choice, documented in `SOLUTION.md`.
+- **Two MinIO endpoints:** an internal one (`minio:9000`) for server-side
+  `statObject`/`removeObject`, and a public one (`localhost:9000`) used only to sign
+  presigned URLs the external client can reach.
+- **Memory:** the 50MB target is **unreachable on the JVM** — measured startup floor
+  ~128MB (see [`docs/memory-measurement.md`](docs/memory-measurement.md)). The service
+  ships on a tuned JVM at a realistic 256MB limit, with GraalVM native documented as the
+  evolution. This is explained rather than faked.
+- **Assumptions:** minimal validation (metadata + size ≤ 500MB; no magic-byte/antivirus
+  inspection, since the service never sees the bytes); search returns `COMPLETED`
+  documents only, ordered by `created_at desc` by default (the OpenAPI `sort` param is
+  honored when provided).
+- **Scaffolding fixes:** the provided `docker-compose.yml` referenced
+  `bitnami/postgresql:15.4.0` (removed from Docker Hub) — replaced with official
+  `postgres:15.4`.
+
+**Run it:** `cd docker && docker-compose up --build`. Then exercise the flow (register →
+PUT to the returned `uploadUrl` → complete → search → download).
 
 ---
 

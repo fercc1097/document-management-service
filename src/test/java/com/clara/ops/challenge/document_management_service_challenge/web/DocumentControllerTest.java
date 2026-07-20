@@ -30,16 +30,20 @@ class DocumentControllerTest {
     UUID id = UUID.randomUUID();
     when(service.register(eq("bob"), eq("f.pdf"), anyList()))
         .thenReturn(new DocumentService.RegisterResult(id, "http://put"));
-    mvc.perform(post("/document-management/upload").contentType(MediaType.APPLICATION_JSON)
-            .content("{\"user\":\"bob\",\"name\":\"f.pdf\",\"tags\":[\"x\"]}"))
+    mvc.perform(
+            post("/document-management/upload")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"user\":\"bob\",\"name\":\"f.pdf\",\"tags\":[\"x\"]}"))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.uploadUrl").value("http://put"));
   }
 
   @Test
   void uploadRejectsNonPdfName() throws Exception {
-    mvc.perform(post("/document-management/upload").contentType(MediaType.APPLICATION_JSON)
-            .content("{\"user\":\"bob\",\"name\":\"f.txt\",\"tags\":[]}"))
+    mvc.perform(
+            post("/document-management/upload")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"user\":\"bob\",\"name\":\"f.txt\",\"tags\":[]}"))
         .andExpect(status().isBadRequest());
   }
 
@@ -55,8 +59,10 @@ class DocumentControllerTest {
   @Test
   void searchReturnsPaginated() throws Exception {
     when(service.search(any(), any(), any(), any())).thenReturn(new PageImpl<>(List.of()));
-    mvc.perform(post("/document-management/search").contentType(MediaType.APPLICATION_JSON)
-            .content("{}"))
+    mvc.perform(
+            post("/document-management/search")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.metadata.totalItems").value(0));
   }
@@ -64,9 +70,10 @@ class DocumentControllerTest {
   @Test
   void searchHonorsProvidedSort() throws Exception {
     when(service.search(any(), any(), any(), any())).thenReturn(new PageImpl<>(List.of()));
-    mvc.perform(post("/document-management/search?sort=name,asc")
-            .contentType(MediaType.APPLICATION_JSON)
-            .content("{}"))
+    mvc.perform(
+            post("/document-management/search?sort=name,asc")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
         .andExpect(status().isOk());
 
     ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
@@ -79,9 +86,10 @@ class DocumentControllerTest {
   @Test
   void notFoundMapsTo404() throws Exception {
     UUID id = UUID.randomUUID();
-    when(service.downloadUrl(id)).thenThrow(
-        new com.clara.ops.challenge.document_management_service_challenge.exception
-            .DocumentNotFoundException("nope"));
+    when(service.downloadUrl(id))
+        .thenThrow(
+            new com.clara.ops.challenge.document_management_service_challenge.exception
+                .DocumentNotFoundException("nope"));
     mvc.perform(get("/document-management/download/" + id))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.status").value(404));

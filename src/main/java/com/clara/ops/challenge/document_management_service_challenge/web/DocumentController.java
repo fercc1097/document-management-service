@@ -22,7 +22,8 @@ public class DocumentController {
   }
 
   @PostMapping("/upload")
-  public ResponseEntity<UploadDocumentResponse> upload(@Valid @RequestBody UploadDocumentRequest req) {
+  public ResponseEntity<UploadDocumentResponse> upload(
+      @Valid @RequestBody UploadDocumentRequest req) {
     DocumentService.RegisterResult r = service.register(req.user(), req.name(), req.tags());
     return ResponseEntity.status(HttpStatus.CREATED)
         .body(new UploadDocumentResponse(r.id(), r.uploadUrl()));
@@ -68,15 +69,21 @@ public class DocumentController {
 
   private PaginatedDocumentSearch toResponse(Page<DocumentEntity> page) {
     List<DocumentDto> docs = page.getContent().stream().map(this::toDto).toList();
-    PaginationMetadata meta = new PaginationMetadata(
-        page.getNumber(), page.getSize(), page.getNumberOfElements(),
-        page.getTotalPages(), page.getTotalElements());
+    PaginationMetadata meta =
+        new PaginationMetadata(
+            page.getNumber(),
+            page.getSize(),
+            page.getNumberOfElements(),
+            page.getTotalPages(),
+            page.getTotalElements());
     return new PaginatedDocumentSearch(meta, docs);
   }
 
   private DocumentDto toDto(DocumentEntity d) {
     return new DocumentDto(
-        d.getId().toString(), d.getUser(), d.getName(),
+        d.getId().toString(),
+        d.getUser(),
+        d.getName(),
         d.getTags().stream().map(TagEntity::getName).collect(Collectors.toList()),
         d.getSize() == null ? null : d.getSize().intValue(),
         d.getFileType(),
