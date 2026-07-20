@@ -51,3 +51,21 @@ blockers over a limit met only on paper.
 approach 50MB — it removes metaspace/JIT and typically lands ~40–90 MB RSS — but with
 Hibernate it may still not meet 50MB strictly, and it adds significant build/AOT cost.
 Documented as the production evolution if the limit becomes a hard requirement.
+
+## Under concurrent load — full containerized stack (Task 8)
+
+With the complete `docker-compose` stack (service + PostgreSQL + MinIO), 10 concurrent
+flows (register → presigned PUT straight to MinIO → complete), all sharing a brand-new
+tag, were run against the service capped at 256M:
+
+- **10/10 flows succeeded** (`PUT 200`, `complete 200`); search by the shared tag
+  returns all 10 documents. The presigned design keeps file bytes out of the service, so
+  10 parallel 500MB uploads never pressure its memory.
+- **Service stayed stable under the 256M limit** (peak RSS ~254 MiB, no OOM-kill). The
+  peak sits near the cap because the JVM grows its heap to the available headroom
+  (`MaxRAMPercentage=75`), not because it needs it — the startup floor is still ~128MB.
+
+Three integration bugs that no unit/integration test caught surfaced only here, in the
+real containerized stack, and were fixed (see `SOLUTION.md`, Step 3): a removed
+`bitnami/postgresql` image, an unpinned MinIO region breaking presigned signing from
+inside the container, and a `tags.name` unique-constraint race under concurrency.

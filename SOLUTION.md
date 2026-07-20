@@ -63,6 +63,32 @@ ship on a tuned JVM at a realistic container limit (~256MB) and document the blo
 with evidence (GraalVM native noted as the evolution). This follows the challenge's own
 guidance to explain blockers rather than fake a limit met only on paper.
 
+## Step 3 — Integration validation (real Docker stack)
+
+Beyond unit and Testcontainers integration tests, I validated the full flow against the
+assembled stack (`docker-compose up --build`): register → presigned **PUT straight to
+MinIO** → complete → search → download, all green. Concurrency: **10 parallel flows
+sharing a new tag succeeded 10/10**, with the service stable under the 256M limit (see
+[`docs/memory-measurement.md`](docs/memory-measurement.md)).
+
+Doing this surfaced **three integration bugs that no unit or Testcontainers test caught**
+— they only appear in the real assembled stack — and all were fixed:
+
+1. **`bitnami/postgresql:15.4.0` was removed from Docker Hub**, so the provided
+   `docker-compose.yml` failed to start. Fixed by pinning the official `postgres:15.4`.
+2. **MinIO region was not pinned**, so signing a presigned URL triggered a
+   `getBucketLocation` network call that failed from inside the service container (the
+   public `localhost:9000` endpoint is unreachable there) → HTTP 500 on register. Fixed
+   by pinning the region on the MinIO clients, keeping signing fully offline.
+3. **`tags.name` unique-constraint race** under concurrency: 10 parallel registers
+   sharing a brand-new tag all tried to insert it → HTTP 500. Fixed with an atomic
+   `INSERT ... ON CONFLICT DO NOTHING` upsert. This one directly threatened the
+   challenge's 10-concurrent-uploads requirement.
+
+Takeaway: mocked and Testcontainers tests are necessary but not sufficient — the
+region-signing and image bugs live in the wiring between containers, and the tag race
+only fires under real parallelism. Driving the real stack is where they showed up.
+
 ## On the 50MB limit: how low-memory Java is actually done
 
 Reviewer-facing note, since "just run Java in 50MB" is a fair question to raise.
