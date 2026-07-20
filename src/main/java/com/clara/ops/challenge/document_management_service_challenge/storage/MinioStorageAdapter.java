@@ -58,7 +58,11 @@ public class MinioStorageAdapter implements StoragePort {
               StatObjectArgs.builder().bucket(props.bucket()).object(objectPath).build());
       return Optional.of(new StoredObject(s.size(), s.contentType()));
     } catch (ErrorResponseException e) {
-      return Optional.empty();
+      String code = e.errorResponse() != null ? e.errorResponse().code() : null;
+      if ("NoSuchKey".equals(code) || "NoSuchObject".equals(code)) {
+        return Optional.empty();
+      }
+      throw new StorageException("Could not stat " + objectPath, e);
     } catch (Exception e) {
       throw new StorageException("Could not stat " + objectPath, e);
     }

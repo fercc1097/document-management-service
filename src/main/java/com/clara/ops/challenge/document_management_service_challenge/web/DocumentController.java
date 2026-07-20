@@ -75,7 +75,7 @@ public class DocumentController {
             page.getSize(),
             page.getNumberOfElements(),
             page.getTotalPages(),
-            page.getTotalElements());
+            (int) page.getTotalElements());
     return new PaginatedDocumentSearch(meta, docs);
   }
 
