@@ -23,23 +23,28 @@ class DocumentSpecificationsIT extends IntegrationTest {
 
   @Test
   void filtersByUserAndNamePrefixAndExcludesPending() {
-    Page<DocumentEntity> page = documents.findAll(
-        DocumentSpecifications.filter("alice", "invoice", null),
-        PageRequest.of(0, 10));
-    assertThat(page.getContent()).extracting(DocumentEntity::getName).containsExactly("invoice-jan.pdf");
+    Page<DocumentEntity> page =
+        documents.findAll(
+            DocumentSpecifications.filter("alice", "invoice", null), PageRequest.of(0, 10));
+    assertThat(page.getContent())
+        .extracting(DocumentEntity::getName)
+        .containsExactly("invoice-jan.pdf");
   }
 
   @Test
   void noFiltersReturnsOnlyCompleted() {
-    Page<DocumentEntity> page = documents.findAll(
-        DocumentSpecifications.filter(null, null, null), PageRequest.of(0, 10));
+    Page<DocumentEntity> page =
+        documents.findAll(DocumentSpecifications.filter(null, null, null), PageRequest.of(0, 10));
     assertThat(page.getTotalElements()).isEqualTo(2);
   }
 
   private DocumentEntity doc(String user, String name, DocumentStatus status) {
     DocumentEntity d = new DocumentEntity();
-    d.setId(UUID.randomUUID()); d.setUser(user); d.setName(name);
-    d.setMinioPath(user + "/" + name); d.setStatus(status);
+    d.setId(UUID.randomUUID());
+    d.setUser(user);
+    d.setName(name);
+    d.setMinioPath(user + "/" + name);
+    d.setStatus(status);
     return d;
   }
 }

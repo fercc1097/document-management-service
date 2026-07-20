@@ -12,13 +12,12 @@ public interface TagRepository extends JpaRepository<TagEntity, Long> {
 
   /**
    * Inserts a tag by name if it does not already exist, atomically ignoring a concurrent insert of
-   * the same name. This avoids the unique-constraint race on {@code tags.name} when parallel uploads
-   * share a brand-new tag (the 10-concurrent-uploads requirement).
+   * the same name. This avoids the unique-constraint race on {@code tags.name} when parallel
+   * uploads share a brand-new tag (the 10-concurrent-uploads requirement).
    */
   @Modifying
   @Query(
-      value =
-          "INSERT INTO document_schema.tags(name) VALUES (:name) ON CONFLICT (name) DO NOTHING",
+      value = "INSERT INTO document_schema.tags(name) VALUES (:name) ON CONFLICT (name) DO NOTHING",
       nativeQuery = true)
   void insertIfAbsent(@Param("name") String name);
 }
