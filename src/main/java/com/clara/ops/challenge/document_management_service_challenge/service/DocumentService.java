@@ -6,7 +6,6 @@ import com.clara.ops.challenge.document_management_service_challenge.exception.*
 import com.clara.ops.challenge.document_management_service_challenge.repository.*;
 import com.clara.ops.challenge.document_management_service_challenge.storage.*;
 import java.util.*;
-import java.util.stream.Collectors;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -95,8 +94,12 @@ public class DocumentService {
 
   private Set<TagEntity> resolveTags(List<String> names) {
     if (names == null) return new HashSet<>();
-    return names.stream()
-        .map(n -> tags.findByName(n).orElseGet(() -> tags.save(new TagEntity(null, n))))
-        .collect(Collectors.toSet());
+    Set<TagEntity> resolved = new HashSet<>();
+    for (String name : names) {
+      // Atomic upsert avoids the unique-constraint race when concurrent uploads share a new tag.
+      tags.insertIfAbsent(name);
+      tags.findByName(name).ifPresent(resolved::add);
+    }
+    return resolved;
   }
 }
