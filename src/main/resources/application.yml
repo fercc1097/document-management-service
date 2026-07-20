@@ -13,6 +13,7 @@ spring:
     properties:
       hibernate:
         default_schema: document_schema
+        default_batch_fetch_size: 100
     open-in-view: false
   servlet:
     multipart:

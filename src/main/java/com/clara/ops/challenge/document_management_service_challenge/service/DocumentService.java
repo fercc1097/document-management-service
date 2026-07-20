@@ -73,7 +73,12 @@ public class DocumentService {
   @Transactional(readOnly = true)
   public Page<DocumentEntity> search(
       String user, String name, List<String> tagNames, Pageable pageable) {
-    return documents.findAll(DocumentSpecifications.filter(user, name, tagNames), pageable);
+    Page<DocumentEntity> page =
+        documents.findAll(DocumentSpecifications.filter(user, name, tagNames), pageable);
+    // Initialize lazy tags while the session is open (open-in-view is false).
+    // default_batch_fetch_size batches these loads to avoid an N+1.
+    page.getContent().forEach(d -> d.getTags().size());
+    return page;
   }
 
   @Transactional(readOnly = true)
