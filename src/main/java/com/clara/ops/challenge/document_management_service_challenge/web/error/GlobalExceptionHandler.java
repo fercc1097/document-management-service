@@ -2,9 +2,11 @@ package com.clara.ops.challenge.document_management_service_challenge.web.error;
 
 import com.clara.ops.challenge.document_management_service_challenge.exception.*;
 import java.util.*;
+import org.springframework.data.mapping.PropertyReferenceException;
 import org.springframework.http.*;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -31,6 +33,11 @@ public class GlobalExceptionHandler {
             .map(f -> f.getField() + ": " + f.getDefaultMessage())
             .toList();
     return build(HttpStatus.BAD_REQUEST, msgs);
+  }
+
+  @ExceptionHandler({MethodArgumentTypeMismatchException.class, PropertyReferenceException.class})
+  public ResponseEntity<ErrorResponse> badParams(Exception e) {
+    return build(HttpStatus.BAD_REQUEST, List.of(e.getMessage()));
   }
 
   @ExceptionHandler(StorageException.class)

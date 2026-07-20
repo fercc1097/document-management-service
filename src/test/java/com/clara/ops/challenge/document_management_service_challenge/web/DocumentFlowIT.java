@@ -69,6 +69,15 @@ class DocumentFlowIT extends IntegrationTest {
     assertThat((String) dl.getBody().get("url")).contains("alice/doc1.pdf");
   }
 
+  @Test
+  void searchWithUnknownSortPropertyReturns400() throws Exception {
+    ResponseEntity<Map> resp =
+        rest.postForEntity(
+            base() + "/search?sort=notaproperty,asc", json("{\"user\":\"alice\"}"), Map.class);
+    assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    assertThat(resp.getBody().get("status")).isEqualTo(400);
+  }
+
   private String base() {
     return "http://localhost:" + port + "/document-management";
   }

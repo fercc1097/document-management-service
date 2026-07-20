@@ -84,6 +84,13 @@ class DocumentControllerTest {
   }
 
   @Test
+  void completeWithMalformedUuidMapsTo400() throws Exception {
+    mvc.perform(post("/document-management/upload/not-a-uuid/complete"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.status").value(400));
+  }
+
+  @Test
   void notFoundMapsTo404() throws Exception {
     UUID id = UUID.randomUUID();
     when(service.downloadUrl(id))
