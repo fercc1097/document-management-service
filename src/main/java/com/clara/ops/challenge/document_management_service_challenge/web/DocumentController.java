@@ -40,10 +40,25 @@ public class DocumentController {
       @RequestParam(defaultValue = "0") int page,
       @RequestParam(defaultValue = "20") int size,
       @RequestParam(required = false) List<String> sort) {
-    Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+    Pageable pageable = PageRequest.of(page, size, resolveSort(sort));
     Page<DocumentEntity> result =
         service.search(filters.user(), filters.name(), filters.tags(), pageable);
     return toResponse(result);
+  }
+
+  private Sort resolveSort(List<String> sort) {
+    if (sort == null || sort.isEmpty()) {
+      return Sort.by(Sort.Direction.DESC, "createdAt");
+    }
+    List<Sort.Order> orders = new ArrayList<>();
+    for (String criterion : sort) {
+      String[] parts = criterion.split(",", 2);
+      String property = parts[0];
+      Sort.Direction direction =
+          parts.length > 1 ? Sort.Direction.fromString(parts[1].trim()) : Sort.Direction.ASC;
+      orders.add(new Sort.Order(direction, property.trim()));
+    }
+    return Sort.by(orders);
   }
 
   @GetMapping("/download/{documentId}")
