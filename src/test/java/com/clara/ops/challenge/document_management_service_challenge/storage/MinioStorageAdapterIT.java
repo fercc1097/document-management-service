@@ -63,4 +63,31 @@ class MinioStorageAdapterIT {
         .isEqualTo((long) body.length);
     assertThat(adapter.presignedGetUrl(path)).contains(path);
   }
+
+  @Test
+  void statOnMissingKeyReturnsEmpty() {
+    assertThat(adapter.stat("nobody/missing.pdf")).isEmpty();
+  }
+
+  @Test
+  void removeThenStatReturnsEmpty() throws Exception {
+    String path = "user1/doc-to-remove.pdf";
+    String putUrl = adapter.presignedPutUrl(path);
+
+    byte[] body = "%PDF-1.7 remove me".getBytes();
+    HttpResponse<Void> resp =
+        HttpClient.newHttpClient()
+            .send(
+                HttpRequest.newBuilder(URI.create(putUrl))
+                    .PUT(HttpRequest.BodyPublishers.ofByteArray(body))
+                    .build(),
+                HttpResponse.BodyHandlers.discarding());
+
+    assertThat(resp.statusCode()).isEqualTo(200);
+    assertThat(adapter.stat(path)).isPresent();
+
+    adapter.remove(path);
+
+    assertThat(adapter.stat(path)).isEmpty();
+  }
 }
