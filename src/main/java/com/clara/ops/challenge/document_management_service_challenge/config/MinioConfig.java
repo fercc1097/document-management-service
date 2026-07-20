@@ -14,6 +14,10 @@ public class MinioConfig {
     return MinioClient.builder()
         .endpoint(p.internalEndpoint())
         .credentials(p.accessKey(), p.secretKey())
+        // Pin the region so presigned-URL signing stays fully offline: without it the SDK
+        // issues a getBucketLocation call to resolve the region, which fails for the public
+        // endpoint (localhost:9000 is unreachable from inside the service container).
+        .region("us-east-1")
         .build();
   }
 
@@ -22,6 +26,10 @@ public class MinioConfig {
     return MinioClient.builder()
         .endpoint(p.publicEndpoint())
         .credentials(p.accessKey(), p.secretKey())
+        // Pin the region so presigned-URL signing stays fully offline: without it the SDK
+        // issues a getBucketLocation call to resolve the region, which fails for the public
+        // endpoint (localhost:9000 is unreachable from inside the service container).
+        .region("us-east-1")
         .build();
   }
 }
