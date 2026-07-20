@@ -1,12 +1,15 @@
 package com.clara.ops.challenge.document_management_service_challenge.web;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.clara.ops.challenge.document_management_service_challenge.service.DocumentService;
+import com.clara.ops.challenge.document_management_service_challenge.web.error.GlobalExceptionHandler;
 import java.util.*;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -14,8 +17,6 @@ import org.springframework.data.domain.*;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
-
-import com.clara.ops.challenge.document_management_service_challenge.web.error.GlobalExceptionHandler;
 
 @WebMvcTest(DocumentController.class)
 @Import(GlobalExceptionHandler.class)
@@ -58,6 +59,21 @@ class DocumentControllerTest {
             .content("{}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.metadata.totalItems").value(0));
+  }
+
+  @Test
+  void searchHonorsProvidedSort() throws Exception {
+    when(service.search(any(), any(), any(), any())).thenReturn(new PageImpl<>(List.of()));
+    mvc.perform(post("/document-management/search?sort=name,asc")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{}"))
+        .andExpect(status().isOk());
+
+    ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+    verify(service).search(any(), any(), any(), pageableCaptor.capture());
+    Sort.Order order = pageableCaptor.getValue().getSort().getOrderFor("name");
+    assertThat(order).isNotNull();
+    assertThat(order.getDirection()).isEqualTo(Sort.Direction.ASC);
   }
 
   @Test
