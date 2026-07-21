@@ -21,8 +21,13 @@ public class GlobalExceptionHandler {
     return build(HttpStatus.CONFLICT, List.of(e.getMessage()));
   }
 
-  @ExceptionHandler({InvalidDocumentException.class, IllegalArgumentException.class})
-  public ResponseEntity<ErrorResponse> invalid(RuntimeException e) {
+  // Only our own client-input exception maps to 400 here. IllegalArgumentException is
+  // deliberately NOT caught: a broad mapping would mask internal server faults (any library
+  // or programming IAE thrown deep in the stack) as client errors. Malformed client inputs
+  // are converted explicitly at the edge (bad UUID -> MethodArgumentTypeMismatchException,
+  // bad sort direction -> InvalidDocumentException).
+  @ExceptionHandler(InvalidDocumentException.class)
+  public ResponseEntity<ErrorResponse> invalid(InvalidDocumentException e) {
     return build(HttpStatus.BAD_REQUEST, List.of(e.getMessage()));
   }
 

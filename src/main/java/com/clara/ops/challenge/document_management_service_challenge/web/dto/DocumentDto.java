@@ -7,6 +7,6 @@ public record DocumentDto(
     String user,
     String name,
     List<String> tags,
-    Integer size,
+    Long size,
     String type,
     String createdAt) {}

@@ -2,6 +2,7 @@ package com.clara.ops.challenge.document_management_service_challenge.web;
 
 import com.clara.ops.challenge.document_management_service_challenge.domain.DocumentEntity;
 import com.clara.ops.challenge.document_management_service_challenge.domain.TagEntity;
+import com.clara.ops.challenge.document_management_service_challenge.exception.InvalidDocumentException;
 import com.clara.ops.challenge.document_management_service_challenge.service.DocumentService;
 import com.clara.ops.challenge.document_management_service_challenge.web.dto.*;
 import jakarta.validation.Valid;
@@ -14,6 +15,9 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/document-management")
 public class DocumentController {
+
+  /** Upper bound on page size so a single request can't materialize an unbounded result set. */
+  private static final int MAX_PAGE_SIZE = 100;
 
   private final DocumentService service;
 
@@ -41,7 +45,9 @@ public class DocumentController {
       @RequestParam(defaultValue = "0") int page,
       @RequestParam(defaultValue = "20") int size,
       @RequestParam(required = false) List<String> sort) {
-    Pageable pageable = PageRequest.of(page, size, resolveSort(sort));
+    int safePage = Math.max(page, 0);
+    int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+    Pageable pageable = PageRequest.of(safePage, safeSize, resolveSort(sort));
     Page<DocumentEntity> result =
         service.search(filters.user(), filters.name(), filters.tags(), pageable);
     return toResponse(result);
@@ -55,16 +61,21 @@ public class DocumentController {
     for (String criterion : sort) {
       String[] parts = criterion.split(",", 2);
       String property = parts[0];
-      Sort.Direction direction =
-          parts.length > 1 ? Sort.Direction.fromString(parts[1].trim()) : Sort.Direction.ASC;
+      Sort.Direction direction = Sort.Direction.ASC;
+      if (parts.length > 1) {
+        String dir = parts[1].trim();
+        direction =
+            Sort.Direction.fromOptionalString(dir)
+                .orElseThrow(() -> new InvalidDocumentException("Invalid sort direction: " + dir));
+      }
       orders.add(new Sort.Order(direction, property.trim()));
     }
     return Sort.by(orders);
   }
 
   @GetMapping("/download/{documentId}")
-  public DocumentDownloadUrl download(@PathVariable String documentId) {
-    return new DocumentDownloadUrl(service.downloadUrl(UUID.fromString(documentId)));
+  public DocumentDownloadUrl download(@PathVariable UUID documentId) {
+    return new DocumentDownloadUrl(service.downloadUrl(documentId));
   }
 
   private PaginatedDocumentSearch toResponse(Page<DocumentEntity> page) {
@@ -85,7 +96,7 @@ public class DocumentController {
         d.getUser(),
         d.getName(),
         d.getTags().stream().map(TagEntity::getName).collect(Collectors.toList()),
-        d.getSize() == null ? null : d.getSize().intValue(),
+        d.getSize(),
         d.getFileType(),
         d.getCreatedAt() == null ? null : d.getCreatedAt().toString());
   }
