@@ -16,12 +16,26 @@ public final class DocumentSpecifications {
         ps.add(cb.equal(root.get("user"), user));
       }
       if (name != null && !name.isBlank()) {
-        ps.add(cb.like(cb.lower(root.get("name")), name.toLowerCase() + "%"));
+        // Case-insensitive prefix match. Escape LIKE metacharacters (% and _) in the user input
+        // so a value like "a%" or "a_c" matches literally instead of acting as a wildcard.
+        String prefix =
+            name.toLowerCase().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+        ps.add(cb.like(cb.lower(root.get("name")), prefix + "%", '\\'));
       }
-      if (tags != null && !tags.isEmpty()) {
-        Join<DocumentEntity, TagEntity> join = root.join("tags", JoinType.INNER);
-        ps.add(join.get("name").in(tags));
-        query.distinct(true);
+      if (tags != null) {
+        // AND semantics: a document must carry EVERY requested tag. Each tag becomes a correlated
+        // EXISTS subquery, which keeps the main query free of joins/DISTINCT and safe to paginate.
+        for (String tag : tags) {
+          if (tag == null || tag.isBlank()) {
+            continue;
+          }
+          Subquery<Long> sub = query.subquery(Long.class);
+          Root<DocumentEntity> subDoc = sub.from(DocumentEntity.class);
+          Join<DocumentEntity, TagEntity> subTags = subDoc.join("tags", JoinType.INNER);
+          sub.select(cb.literal(1L));
+          sub.where(cb.equal(subDoc, root), cb.equal(subTags.get("name"), tag));
+          ps.add(cb.exists(sub));
+        }
       }
       return cb.and(ps.toArray(new Predicate[0]));
     };

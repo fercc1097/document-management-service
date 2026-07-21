@@ -98,6 +98,32 @@ Takeaway: mocked and Testcontainers tests are necessary but not sufficient — t
 region-signing and image bugs live in the wiring between containers, and the tag race
 only fires under real parallelism. Driving the real stack is where they showed up.
 
+## Step 4 — Post-review hardening
+
+A high-recall code review of the branch surfaced seven items; all were fixed (full test
+suite still green: 16 unit + 9 Testcontainers integration tests).
+
+| # |      Area       |                                                                                                                                                 Fix                                                                                                                                                 |
+|---|-----------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 1 | Pagination      | `size` is now clamped to `[1, 100]` and `page` to `>= 0`. An unbounded `size` could materialize an arbitrarily large result set in memory — a real risk given the 50MB memory target.                                                                                                               |
+| 2 | Name filter     | LIKE metacharacters (`%`, `_`, `\`) in the `name` filter are escaped and an explicit `ESCAPE '\'` is used, so a value like `a%` matches literally instead of acting as a wildcard.                                                                                                                  |
+| 3 | Response size   | `DocumentDto.size` widened from `Integer` to `Long`; the value is no longer narrowed with `intValue()` (which would overflow to a negative number if `MAX_FILE_SIZE_BYTES` were raised above ~2.1GB).                                                                                               |
+| 4 | Object key      | `register` now rejects path separators and traversal segments (`/`, `\`, `.`, `..`) in `user`/`name`, so the mandated `{user}/{name}` key cannot escape the user's prefix. The `(user, name)` overwrite behavior is unchanged — see the assumption above.                                           |
+| 5 | Error mapping   | Stopped blanket-mapping `IllegalArgumentException` to `400`, which masked internal server faults as client errors. Client-input errors are converted at the edge instead: a malformed download id via `@PathVariable UUID` → `400`, an invalid sort direction → `InvalidDocumentException` → `400`. |
+| 6 | Tag filter      | See decision below.                                                                                                                                                                                                                                                                                 |
+| 7 | Schema coupling | The native tag upsert used a hardcoded `document_schema.tags`. Replaced with Hibernate's `{h-schema}` placeholder so it follows the configured `hibernate.default_schema` and can't diverge from the JPA-mapped queries.                                                                            |
+
+**Decision — tag filter is AND, not OR:** the search endpoint filters documents by tags
+using **AND** semantics — a document must carry *every* requested tag to match (e.g.
+`tags=["invoice","2024"]` returns only documents tagged with both). The challenge brief
+lists Tags as a filter but does not specify multi-tag semantics, so this is a judgment
+call: for a *filter*, "narrow to documents that have all of these" is the more precise
+and expected behavior than "any of these" (OR), which would widen results the caller
+didn't ask for. It is implemented with one correlated `EXISTS` subquery per tag, which
+keeps the main query free of joins and `DISTINCT` and therefore safe to paginate. If the
+reviewer intended OR semantics, it is a one-line change (a single `INNER JOIN` on `tags`
+with `tag.name IN (:tags)` plus `DISTINCT`).
+
 ## On the 50MB limit: how low-memory Java is actually done
 
 Reviewer-facing note, since "just run Java in 50MB" is a fair question to raise.

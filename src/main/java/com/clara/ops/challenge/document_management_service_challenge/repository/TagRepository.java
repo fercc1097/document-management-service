@@ -15,9 +15,11 @@ public interface TagRepository extends JpaRepository<TagEntity, Long> {
    * the same name. This avoids the unique-constraint race on {@code tags.name} when parallel
    * uploads share a brand-new tag (the 10-concurrent-uploads requirement).
    */
+  // {h-schema} resolves to the configured hibernate.default_schema, so this native query follows
+  // the same schema as the JPA-mapped queries instead of hardcoding it and silently diverging.
   @Modifying
   @Query(
-      value = "INSERT INTO document_schema.tags(name) VALUES (:name) ON CONFLICT (name) DO NOTHING",
+      value = "INSERT INTO {h-schema}tags(name) VALUES (:name) ON CONFLICT (name) DO NOTHING",
       nativeQuery = true)
   void insertIfAbsent(@Param("name") String name);
 }

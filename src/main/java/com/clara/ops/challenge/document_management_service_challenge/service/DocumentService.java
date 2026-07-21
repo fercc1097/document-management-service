@@ -34,6 +34,11 @@ public class DocumentService {
 
   @Transactional
   public RegisterResult register(String user, String name, List<String> tagNames) {
+    // The object key is the mandated layout {user}/{name}. Reject path separators and traversal
+    // segments in either part so the key can't escape the user's prefix (e.g. user="../other").
+    rejectPathTraversal("user", user);
+    rejectPathTraversal("name", name);
+
     UUID id = UUID.randomUUID();
     String path = user + "/" + name;
 
@@ -92,6 +97,16 @@ public class DocumentService {
       throw new DocumentNotReadyException("Document " + id + " is not ready");
     }
     return storage.presignedGetUrl(d.getMinioPath());
+  }
+
+  private static void rejectPathTraversal(String field, String value) {
+    if (value == null
+        || value.contains("/")
+        || value.contains("\\")
+        || value.equals(".")
+        || value.equals("..")) {
+      throw new InvalidDocumentException(field + " must not contain path separators or traversal");
+    }
   }
 
   private Set<TagEntity> resolveTags(List<String> names) {
