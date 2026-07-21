@@ -33,26 +33,11 @@ Search returns `COMPLETED` documents only, ordered by `created_at` descending un
 
 ## Memory: the 50 MB constraint
 
-The challenge assigns the service container a **50 MB memory limit**. I treated it as something to measure, not assume — and the measurement is unambiguous: **a Spring Boot + Hibernate JVM cannot run in 50 MB.**
+Measured, not assumed: a Spring Boot + Hibernate JVM does not fit in 50 MB. With defaults it needs far more; even tuned (SerialGC, container-aware sizing, small stacks) the **startup floor is ~160 MB — ~3× the target**, driven by metaspace, not tuning. The service ships at a realistic **256 MB** and documents the blocker (GraalVM native, ~40–90 MB, is the evolution). Presigned PUT keeps bytes out of the service, so **10 concurrent uploads still pass 10/10** under 256 MB.
 
-**What happened.** With the file bytes already out of the service (presigned PUT), the only thing left consuming memory is the JVM itself. I ran the app under decreasing container limits (SerialGC, container-aware heap sizing) and recorded where it boots:
+![Default vs tuned JVM under decreasing memory limits, and the 10-concurrent-upload load test](docs/assets/memory-load-test.png)
 
-|  Container limit   |         Result         |
-|--------------------|------------------------|
-| 50 MB              | ❌ OOM — never boots    |
-| 96 MB              | ❌ OOM — never boots    |
-| 128 MB             | ✅ boots (uses ~126 MB) |
-| 160 / 200 / 256 MB | ✅ boots                |
-
-The startup floor is ~128 MB — about **2.5× the target** — driven by metaspace (the Spring/Hibernate class graph), a minimum heap, and JVM native memory. It is structural, not a tuning problem: `-Xmx50m` alone (which most reference solutions use) only caps the heap and still never boots under a real 50 MB cgroup.
-
-**Decision.** Ship on a tuned JVM at a realistic **256 MB** limit and document the blocker with evidence rather than fake a number — the challenge explicitly asks to explain blockers. GraalVM native image (~40–90 MB) is the documented production evolution if the limit becomes hard.
-
-**Concurrency still holds.** Because bytes never enter the service, **10 parallel uploads succeed 10/10** with the service stable under 256 MB — verified against the full stack and by an automated `ConcurrentRegisterIT`.
-
-![Memory limit sweep and 10-concurrent-upload load test](docs/assets/memory-load-test.png)
-
-Full detail and raw numbers: [docs/memory-measurement.md](docs/memory-measurement.md).
+Raw numbers: [docs/memory-measurement.md](docs/memory-measurement.md).
 
 ## Run
 
@@ -81,7 +66,7 @@ Runs unit tests plus Testcontainers integration tests against real PostgreSQL an
 
 Conscious decisions (full detail in [SOLUTION.md](SOLUTION.md)):
 
-- Memory: the 50 MB limit is not reachable on the JVM (measured, floor ~128 MB); the service ships at a realistic 256 MB. See [Memory: the 50 MB constraint](#memory-the-50-mb-constraint).
+- Memory: the 50 MB limit is not reachable on the JVM (measured, floor ~160 MB); the service ships at a realistic 256 MB. See [Memory: the 50 MB constraint](#memory-the-50-mb-constraint).
 - The presigned flow deviates from the contract's body-less `201` and adds a `/complete` endpoint.
 - Validation is minimal by design (metadata plus size ≤ 500 MB); the service never sees the bytes, so there is no content inspection.
 

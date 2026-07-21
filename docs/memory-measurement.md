@@ -18,7 +18,10 @@ connected to PostgreSQL, one trivial `/health` endpoint. The file data-path is a
 - `JAVA_OPTS=-XX:MaxRAMPercentage=75 -XX:+UseSerialGC` (SerialGC = lowest GC overhead).
 - `UseContainerSupport` on (default): the JVM sizes the heap from the cgroup limit.
 
-## Results
+## Results — walking-skeleton spike
+
+> This first sweep used a minimal walking skeleton to find the JVM floor early and cheaply.
+> The **full application floor is higher (~160 MB)** — see the normal-vs-tuned table below.
 
 | Container memory limit |         Outcome          |           Observed usage            |
 |------------------------|--------------------------|-------------------------------------|
@@ -32,13 +35,28 @@ connected to PostgreSQL, one trivial `/health` endpoint. The file data-path is a
 
 ## Conclusion
 
-The startup floor of this stack is **between 96 and 128 MB** — roughly **2.5× the
-50MB target**. 50MB is **unreachable on the JVM**, even with the data-path removed,
+The walking skeleton's startup floor is **between 96 and 128 MB**; the full application's
+is **~160 MB** (next section) — roughly **3× the 50MB target**. 50MB is **unreachable on
+the JVM**, even with the data-path removed,
 SerialGC, and container-aware sizing. The cause is structural, not tuning:
 class-metadata (metaspace) for the Spring/Hibernate class graph, a minimum viable
 heap, JIT code cache, thread stacks, and JVM native memory together exceed 50MB before
 any request is served. This is why `-Xmx50m` alone (used by most reference solutions)
 is misleading: it caps only the heap; under a real 50MB cgroup the process never boots.
+
+## Full application — normal vs tuned JVM
+
+Re-measured against the **complete application** image (not the skeleton), with PostgreSQL
++ MinIO running, under decreasing container limits:
+
+|                JVM config                | 50 MB | 128 MB |  160 MB   |  256 MB   |  512 MB   |
+|------------------------------------------|-------|--------|-----------|-----------|-----------|
+| **Defaults** (G1GC, RAMPct 25%)          | —     | ❌ OOM  | —         | ✅ 232 MiB | ✅ 271 MiB |
+| **Tuned** (SerialGC, RAMPct 75, Xss512k) | ❌ OOM | ❌ OOM  | ✅ 160 MiB | ✅ 211 MiB | —         |
+
+The full app's startup floor is **~160 MB** (tuned) — about **3× the 50 MB target**.
+Tuning lowers both the floor (defaults need ~256 MB) and the RSS at a given limit, but
+neither config comes close to 50 MB. The service ships at **256 MB**.
 
 ## Decision (design doc D7)
 
@@ -63,7 +81,7 @@ tag, were run against the service capped at 256M:
   10 parallel 500MB uploads never pressure its memory.
 - **Service stayed stable under the 256M limit** (peak RSS ~254 MiB, no OOM-kill). The
   peak sits near the cap because the JVM grows its heap to the available headroom
-  (`MaxRAMPercentage=75`), not because it needs it — the startup floor is still ~128MB.
+  (`MaxRAMPercentage=75`), not because it needs it — the full-app startup floor is ~160MB.
 
 Three integration bugs that no unit/integration test caught surfaced only here, in the
 real containerized stack, and were fixed (see `SOLUTION.md`, Step 3): a removed
