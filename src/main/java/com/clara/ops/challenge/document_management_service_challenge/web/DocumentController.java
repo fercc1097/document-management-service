@@ -1,15 +1,27 @@
 package com.clara.ops.challenge.document_management_service_challenge.web;
 
 import com.clara.ops.challenge.document_management_service_challenge.domain.DocumentEntity;
-import com.clara.ops.challenge.document_management_service_challenge.domain.TagEntity;
 import com.clara.ops.challenge.document_management_service_challenge.service.DocumentService;
-import com.clara.ops.challenge.document_management_service_challenge.web.dto.*;
+import com.clara.ops.challenge.document_management_service_challenge.web.dto.DocumentDownloadUrl;
+import com.clara.ops.challenge.document_management_service_challenge.web.dto.DocumentSearchFilters;
+import com.clara.ops.challenge.document_management_service_challenge.web.dto.PaginatedDocumentSearch;
+import com.clara.ops.challenge.document_management_service_challenge.web.dto.UploadDocumentRequest;
+import com.clara.ops.challenge.document_management_service_challenge.web.dto.UploadDocumentResponse;
 import jakarta.validation.Valid;
-import java.util.*;
-import java.util.stream.Collectors;
-import org.springframework.data.domain.*;
-import org.springframework.http.*;
-import org.springframework.web.bind.annotation.*;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/document-management")
@@ -19,10 +31,13 @@ public class DocumentController {
   private static final int MAX_PAGE_SIZE = 100;
 
   private final DocumentService service;
+  private final DocumentMapper mapper;
   private final SortCriteriaParser sortParser;
 
-  public DocumentController(DocumentService service, SortCriteriaParser sortParser) {
+  public DocumentController(
+      DocumentService service, DocumentMapper mapper, SortCriteriaParser sortParser) {
     this.service = service;
+    this.mapper = mapper;
     this.sortParser = sortParser;
   }
 
@@ -51,34 +66,11 @@ public class DocumentController {
     Pageable pageable = PageRequest.of(safePage, safeSize, sortParser.parse(sort));
     Page<DocumentEntity> result =
         service.search(filters.user(), filters.name(), filters.tags(), pageable);
-    return toResponse(result);
+    return mapper.toResponse(result);
   }
 
   @GetMapping("/download/{documentId}")
   public DocumentDownloadUrl download(@PathVariable UUID documentId) {
     return new DocumentDownloadUrl(service.downloadUrl(documentId));
-  }
-
-  private PaginatedDocumentSearch toResponse(Page<DocumentEntity> page) {
-    List<DocumentDto> docs = page.getContent().stream().map(this::toDto).toList();
-    PaginationMetadata meta =
-        new PaginationMetadata(
-            page.getNumber(),
-            page.getSize(),
-            page.getNumberOfElements(),
-            page.getTotalPages(),
-            (int) page.getTotalElements());
-    return new PaginatedDocumentSearch(meta, docs);
-  }
-
-  private DocumentDto toDto(DocumentEntity d) {
-    return new DocumentDto(
-        d.getId().toString(),
-        d.getUser(),
-        d.getName(),
-        d.getTags().stream().map(TagEntity::getName).collect(Collectors.toList()),
-        d.getSize(),
-        d.getFileType(),
-        d.getCreatedAt() == null ? null : d.getCreatedAt().toString());
   }
 }

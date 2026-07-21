@@ -19,7 +19,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 @WebMvcTest(DocumentController.class)
-@Import({GlobalExceptionHandler.class, SortCriteriaParser.class})
+@Import({GlobalExceptionHandler.class, SortCriteriaParser.class, DocumentMapper.class})
 class DocumentControllerTest {
 
   @Autowired MockMvc mvc;
