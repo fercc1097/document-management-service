@@ -55,6 +55,15 @@ service. Everything below follows from *keeping the bytes out of the service*.
 `201` body and adds a `/complete` endpoint — both absent from the provided OpenAPI
 contract, documented in the design doc.
 
+**Assumption — `(user, name)` is not unique:** the challenge mandates the object path
+`document-bucket/{user}/{name}`, and the service does not enforce uniqueness on
+`(user, name)`. Re-registering the same `user` + `name` reuses that same path, so a
+subsequent presigned PUT silently overwrites the previously uploaded object's bytes
+(the earlier `documents` row stays pointed at a path whose content has changed). This is
+a known, documented limitation inherent to the mandated layout, not a bug being fixed
+here — behavior is unchanged. A UUID-suffixed path or a unique `(user, name)` constraint
+would remove it if that layout requirement were relaxed.
+
 **Result:** Design approved. The 10-concurrent-uploads requirement is met *by design*
 (bytes never enter the service). For the 50MB limit, an early measurement spike
 ([`docs/memory-measurement.md`](docs/memory-measurement.md)) proved it is **unreachable

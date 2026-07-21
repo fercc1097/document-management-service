@@ -49,7 +49,9 @@ public class DocumentService {
     return new RegisterResult(id, storage.presignedPutUrl(path));
   }
 
-  @Transactional
+  // Deliberately NOT @Transactional: storage.stat/remove are network calls to MinIO. Holding a DB
+  // transaction (and its pooled connection) open across that I/O would pin the connection for the
+  // duration of the remote call. findById and save each run in their own short transaction instead.
   public void complete(UUID id) {
     DocumentEntity d =
         documents
