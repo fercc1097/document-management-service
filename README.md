@@ -2,7 +2,7 @@
 
 Backend service to upload, search, and download large PDF documents (up to 500 MB) under a tight container memory budget. Java 17, Spring Boot 3, PostgreSQL (metadata), MinIO (object storage).
 
-Uploads are **presigned**: clients PUT bytes straight to MinIO, so file data never flows through the service. That is what makes the 50 MB memory target and 10 concurrent 500 MB uploads achievable by design.
+Uploads are **presigned**: clients PUT bytes straight to MinIO, so file data never flows through the service. That is what makes **10 concurrent 500 MB uploads** achievable by design — the bytes never pressure the service's memory. The **50 MB target itself, however, is not reachable on the JVM**; it was measured, not assumed. See [Memory: the 50 MB constraint](#memory-the-50-mb-constraint) for the evidence and the decision.
 
 - Approach, rationale, and trade-offs: [SOLUTION.md](SOLUTION.md)
 - Original assignment: [docs/CHALLENGE.md](docs/CHALLENGE.md)
@@ -31,6 +31,29 @@ Base path `/document-management`. Contract: [OpenAPI spec](docs/document-managem
 
 Search returns `COMPLETED` documents only, ordered by `created_at` descending unless a `sort` is given. Multi-tag filtering uses AND semantics (a document must carry every requested tag).
 
+## Memory: the 50 MB constraint
+
+The challenge assigns the service container a **50 MB memory limit**. I treated it as something to measure, not assume — and the measurement is unambiguous: **a Spring Boot + Hibernate JVM cannot run in 50 MB.**
+
+**What happened.** With the file bytes already out of the service (presigned PUT), the only thing left consuming memory is the JVM itself. I ran the app under decreasing container limits (SerialGC, container-aware heap sizing) and recorded where it boots:
+
+|  Container limit   |         Result         |
+|--------------------|------------------------|
+| 50 MB              | ❌ OOM — never boots    |
+| 96 MB              | ❌ OOM — never boots    |
+| 128 MB             | ✅ boots (uses ~126 MB) |
+| 160 / 200 / 256 MB | ✅ boots                |
+
+The startup floor is ~128 MB — about **2.5× the target** — driven by metaspace (the Spring/Hibernate class graph), a minimum heap, and JVM native memory. It is structural, not a tuning problem: `-Xmx50m` alone (which most reference solutions use) only caps the heap and still never boots under a real 50 MB cgroup.
+
+**Decision.** Ship on a tuned JVM at a realistic **256 MB** limit and document the blocker with evidence rather than fake a number — the challenge explicitly asks to explain blockers. GraalVM native image (~40–90 MB) is the documented production evolution if the limit becomes hard.
+
+**Concurrency still holds.** Because bytes never enter the service, **10 parallel uploads succeed 10/10** with the service stable under 256 MB — verified against the full stack and by an automated `ConcurrentRegisterIT`.
+
+![Memory limit sweep and 10-concurrent-upload load test](docs/assets/memory-load-test.png)
+
+Full detail and raw numbers: [docs/memory-measurement.md](docs/memory-measurement.md).
+
 ## Run
 
 All configuration is externalized via environment variables (see [docker/docker-compose.yml](docker/docker-compose.yml) and [application.yml](src/main/resources/application.yml)).
@@ -58,7 +81,7 @@ Runs unit tests plus Testcontainers integration tests against real PostgreSQL an
 
 Conscious decisions (full detail in [SOLUTION.md](SOLUTION.md)):
 
-- The 50 MB limit is unreachable on the JVM — measured startup floor ~128 MB ([docs/memory-measurement.md](docs/memory-measurement.md)). The service ships tuned at a realistic 256 MB, with GraalVM native image documented as the production evolution. This is explained rather than faked.
+- Memory: the 50 MB limit is not reachable on the JVM (measured, floor ~128 MB); the service ships at a realistic 256 MB. See [Memory: the 50 MB constraint](#memory-the-50-mb-constraint).
 - The presigned flow deviates from the contract's body-less `201` and adds a `/complete` endpoint.
 - Validation is minimal by design (metadata plus size ≤ 500 MB); the service never sees the bytes, so there is no content inspection.
 
