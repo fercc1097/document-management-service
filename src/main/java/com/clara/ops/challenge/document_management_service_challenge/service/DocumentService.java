@@ -1,11 +1,21 @@
 package com.clara.ops.challenge.document_management_service_challenge.service;
 
 import com.clara.ops.challenge.document_management_service_challenge.config.MinioProperties;
-import com.clara.ops.challenge.document_management_service_challenge.domain.*;
-import com.clara.ops.challenge.document_management_service_challenge.exception.*;
-import com.clara.ops.challenge.document_management_service_challenge.repository.*;
-import com.clara.ops.challenge.document_management_service_challenge.storage.*;
-import java.util.*;
+import com.clara.ops.challenge.document_management_service_challenge.domain.DocumentEntity;
+import com.clara.ops.challenge.document_management_service_challenge.domain.DocumentStatus;
+import com.clara.ops.challenge.document_management_service_challenge.domain.TagEntity;
+import com.clara.ops.challenge.document_management_service_challenge.exception.DocumentNotFoundException;
+import com.clara.ops.challenge.document_management_service_challenge.exception.DocumentNotReadyException;
+import com.clara.ops.challenge.document_management_service_challenge.exception.InvalidDocumentException;
+import com.clara.ops.challenge.document_management_service_challenge.repository.DocumentRepository;
+import com.clara.ops.challenge.document_management_service_challenge.repository.DocumentSpecifications;
+import com.clara.ops.challenge.document_management_service_challenge.repository.TagRepository;
+import com.clara.ops.challenge.document_management_service_challenge.storage.StoragePort;
+import com.clara.ops.challenge.document_management_service_challenge.storage.StoredObject;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;

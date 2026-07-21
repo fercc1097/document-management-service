@@ -2,7 +2,11 @@ package com.clara.ops.challenge.document_management_service_challenge.storage;
 
 import com.clara.ops.challenge.document_management_service_challenge.config.MinioProperties;
 import com.clara.ops.challenge.document_management_service_challenge.exception.StorageException;
-import io.minio.*;
+import io.minio.GetPresignedObjectUrlArgs;
+import io.minio.MinioClient;
+import io.minio.RemoveObjectArgs;
+import io.minio.StatObjectArgs;
+import io.minio.StatObjectResponse;
 import io.minio.errors.ErrorResponseException;
 import io.minio.http.Method;
 import java.util.Optional;

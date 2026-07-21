@@ -1,11 +1,16 @@
 package com.clara.ops.challenge.document_management_service_challenge.web.error;
 
-import com.clara.ops.challenge.document_management_service_challenge.exception.*;
-import java.util.*;
+import com.clara.ops.challenge.document_management_service_challenge.exception.DocumentNotFoundException;
+import com.clara.ops.challenge.document_management_service_challenge.exception.DocumentNotReadyException;
+import com.clara.ops.challenge.document_management_service_challenge.exception.InvalidDocumentException;
+import com.clara.ops.challenge.document_management_service_challenge.exception.StorageException;
+import java.util.List;
 import org.springframework.data.mapping.PropertyReferenceException;
-import org.springframework.http.*;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @RestControllerAdvice
