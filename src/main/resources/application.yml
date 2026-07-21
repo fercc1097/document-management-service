@@ -19,6 +19,17 @@ spring:
     multipart:
       enabled: false   # the service never receives file bytes
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health   # only health is exposed; keeps surface and footprint minimal
+  endpoint:
+    health:
+      show-details: never # aggregate UP/DOWN only, don't leak component internals unauthenticated
+      probes:
+        enabled: true      # adds liveness/readiness groups for orchestration
+
 server:
   port: ${SERVER_PORT:8080}
   tomcat:
