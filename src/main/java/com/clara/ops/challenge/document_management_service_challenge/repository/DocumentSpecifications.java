@@ -10,6 +10,7 @@ import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import org.springframework.data.jpa.domain.Specification;
 
 public final class DocumentSpecifications {
@@ -26,7 +27,10 @@ public final class DocumentSpecifications {
         // Case-insensitive prefix match. Escape LIKE metacharacters (% and _) in the user input
         // so a value like "a%" or "a_c" matches literally instead of acting as a wildcard.
         String prefix =
-            name.toLowerCase().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+            name.toLowerCase(Locale.ROOT)
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
         ps.add(cb.like(cb.lower(root.get("name")), prefix + "%", '\\'));
       }
       if (tags != null) {
@@ -37,10 +41,10 @@ public final class DocumentSpecifications {
             continue;
           }
           Subquery<Long> sub = query.subquery(Long.class);
-          Root<DocumentEntity> subDoc = sub.from(DocumentEntity.class);
+          Root<DocumentEntity> subDoc = sub.correlate(root);
           Join<DocumentEntity, TagEntity> subTags = subDoc.join("tags", JoinType.INNER);
           sub.select(cb.literal(1L));
-          sub.where(cb.equal(subDoc, root), cb.equal(subTags.get("name"), tag));
+          sub.where(cb.equal(subTags.get("name"), tag));
           ps.add(cb.exists(sub));
         }
       }
