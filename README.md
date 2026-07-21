@@ -1,195 +1,72 @@
-# 📄 Document Management API Challenge
+# Document Management Service
 
-## Overview 🚀
+Backend service to upload, search, and download large PDF documents (up to 500 MB) under a tight container memory budget. Java 17, Spring Boot 3, PostgreSQL (metadata), MinIO (object storage).
 
-In this challenge, you will build a backend API service to manage **large PDF documents**. The service must allow users to upload, search, and download PDF documents while efficiently handling resources, given a **memory limitation of 50MB assigned to the document management service container**.
-This challenge is designed for a mid-senior engineer to demonstrate advanced skills in **Spring Boot, Java, REST API development, testing, containerization, and cloud storage integration**.
+Uploads are **presigned**: clients PUT bytes straight to MinIO, so file data never flows through the service. That is what makes the 50 MB memory target and 10 concurrent 500 MB uploads achievable by design.
 
-## Functional Requirements ✅
+- Approach, rationale, and trade-offs: [SOLUTION.md](SOLUTION.md)
+- Original assignment: [docs/CHALLENGE.md](docs/CHALLENGE.md)
 
-### 1. Upload Endpoint ⬆️
+## Architecture
 
-- **Functionality:**  
-  Allow uploading a PDF document along with the following metadata:
-  - **User:** A string identifying the user associated with the document.
-  - **Document Name:** The name provided in the request will be used as the file name.
-  - **Tags:** A list of tags associated with the document.
-- **Technical Constraints:**
-  - The service must handle PDF uploads of up to 500MB.
-  - The uploaded PDF should be stored in an bucket (simulated via MinIO) with the following directory structure:
+Controller → Service → Repository, with a `StoragePort` abstraction over MinIO (`MinioStorageAdapter`) so the storage backend can be swapped without touching the service. Tags are a normalized many-to-many. Two MinIO endpoints are used: an internal one for server-side `statObject`/`removeObject`, and a public one only to sign URLs the external client can reach.
 
-    ```
-    document-bucket/
-      ├─ user1/
-      │  ├─ doc1.pdf
-      │  ├─ doc2.pdf
-      ├─ user2/
-      │  ├─ doc3.pdf
-    ```
-  - Metadata must be persisted in a PostgreSQL database with the following fields:
-    - **User**
-    - **Document Name**
-    - **Tags**
-    - **MinIO Path**
-    - **File Size**
-    - **File Type**
-    - **Created At**
-    - **Include any additional fields you deem necessary**
+Upload is a two-step flow:
 
-**📌 Storage Requirement: Uploading Documents to MinIO**
+1. `POST /upload` (JSON metadata) — persists the document as `PENDING`, returns a presigned PUT URL.
+2. Client PUTs the PDF directly to that URL (→ MinIO).
+3. `POST /upload/{id}/complete` — validates real size/type via `statObject`, marks it `COMPLETED`.
 
-All uploaded documents must be stored in MinIO to ensure scalability and efficient storage management. The service will interact with MinIO to handle file uploads and generate temporary access URLs for retrieval. For detailed instructions on how to set up and use MinIO locally, please refer to the following document:
-📄 [MinIO Local Setup Guide](docs/minio-local-setup.md).
+## API
 
-### 2. Search Endpoint 🔍
+Base path `/document-management`. Contract: [OpenAPI spec](docs/document-management-open-api.yml).
 
-- **Functionality:**  
-  Allow querying documents with optional filters:
-  - **Filters:** User, Document Name, and Tags.
-  - If no filters are provided, return all documents.
-  - Results should be ordered by `created_at` in descending order.
-  - The endpoint must support pagination using `page` and `size` parameters.
-- **Note:**  
-  This endpoint should not return any download URL.
+| Method |          Path           |                      Purpose                       |
+|--------|-------------------------|----------------------------------------------------|
+| POST   | `/upload`               | Register metadata, return a presigned PUT URL      |
+| POST   | `/upload/{id}/complete` | Confirm the upload, mark it `COMPLETED`            |
+| POST   | `/search`               | Filter by user/name/tags, with pagination and sort |
+| GET    | `/download/{id}`        | Return a temporary presigned GET URL               |
+| GET    | `/actuator/health`      | Liveness/readiness                                 |
 
-### 3. Download Endpoint ⬇️
+Search returns `COMPLETED` documents only, ordered by `created_at` descending unless a `sort` is given. Multi-tag filtering uses AND semantics (a document must carry every requested tag).
 
-- **Functionality:**  
-  Allow downloading a document using its ID. The endpoint should return a temporary download URL that enables secure access to the document stored in MinIO.
+## Run
 
-- **Implementation:**  
-  Generate a temporary download URL using MinIO’s pre-signed URL functionality. The service will utilize MinIO to generate a temporary download link based on the document's ID, allowing the document to be securely accessed without exposing direct storage paths.
+All configuration is externalized via environment variables (see [docker/docker-compose.yml](docker/docker-compose.yml) and [application.yml](src/main/resources/application.yml)).
 
-### Note:
+```bash
+cd docker && docker-compose up --build
+```
 
-For more details on how to use MinIO, refer to the documentation:
-📄 [MinIO Local Setup Guide](docs/minio-local-setup.md).
+Exercise the flow:
 
-## Technical Requirements ⚙️
+1. `POST /document-management/upload` with `{"user","name","tags"}` → receive `id` and `uploadUrl`.
+2. `PUT` the PDF bytes to `uploadUrl`.
+3. `POST /document-management/upload/{id}/complete`.
+4. `POST /document-management/search` and `GET /document-management/download/{id}`.
 
-- **Memory Limitation:**  
-  The service memory is limited to 50MB. You must design your solution to efficiently manage memory during file upload and processing, even when handling uploads of files up to 500MB.
+## Tests
 
-- **Concurrent Uploads:**  
-  The system must be capable of handling up to 10 documents being uploaded in parallel, with each document having a size of up to 500MB.
+```bash
+./mvnw clean verify
+```
 
-- **Upload time limit:**  
-  There are no restrictions on the time it takes to upload files. Only, ensure that the service can handle uploads of up to 500MB without exceeding the memory limitation.
+Runs unit tests plus Testcontainers integration tests against real PostgreSQL and MinIO. Coverage: `./mvnw jacoco:report`. Formatting: `./mvnw spotless:apply`.
 
-- **Provided Artifacts:**
+## Notes
 
-  - OpenAPI specification that includes the contract for the endpoints.
-    - Reference: [document-management-open-api.yml](docs/document-management-open-api.yml).
-    - You can visualize the content using [Swagger Editor](https://editor-next.swagger.io/).
-  - A docker-compose stack that includes PostgreSQL, and the Document Management Service.
-  - Integrated tools:
-    - **Spring Boot:** The project is pre-configured with Spring Boot.
-    - **Spring Data JPA:** For database operations.
-    - **MinIO:** For simulating bucket operations services locally.
-    - **Lombok:** For reducing boilerplate code.
-    - **JUnit 5:** For unit and integration testing.
-    - **Mockito:** For mocking dependencies in tests.
-    - **AssertJ:** For fluent assertions in tests.
-    - **Jacoco:** for code coverage (run `./mvnw jacoco:report` to generate the report).
-    - **Spotless:** for code formatting (run `./mvnw spotless:apply` to format your code).
-- **Java Version:**  
-  The project is configured with Java 17, but you may restrict your solution to features available in Java 8 if necessary.
-- **Schema Management:**  
-  Provide a script for creating the database schema, ensuring efficient handling of multiple tags per document.
-- **Documentation:**  
-  (Optional) Include OpenAPI documentation for the API endpoints.
+Conscious decisions (full detail in [SOLUTION.md](SOLUTION.md)):
 
-## Implementation Instructions 🛠️
+- The 50 MB limit is unreachable on the JVM — measured startup floor ~128 MB ([docs/memory-measurement.md](docs/memory-measurement.md)). The service ships tuned at a realistic 256 MB, with GraalVM native image documented as the production evolution. This is explained rather than faked.
+- The presigned flow deviates from the contract's body-less `201` and adds a `/complete` endpoint.
+- Validation is minimal by design (metadata plus size ≤ 500 MB); the service never sees the bytes, so there is no content inspection.
 
-1. Use this repository as the starting point for your solution. If possible, create a fork of the repository.
-2. Implement the endpoints as per the provided OpenAPI specification.
-3. Configure an MinIO client.
-4. Configure a connection to PostgreSQL.
-5. Include your database schema script in `docker/init-scripts/schema-init.sql`.
-6. Create the Dockerfile for the `document-management-service`.
-7. Modify the docker-compose.yml file to add the necessary configuration for including the document-management-service in the stack. Ensure that the service correctly connects to PostgreSQL and MinIO.
-8. Implement the required functionality for the Document Management Service.
-9. Once your functionality is ready, validate it using Postman. Please note that you must start the stack using `docker-compose up --build`.
-10. Commit your changes. It is recommended to maintain a clean commit history, ideally using [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0-beta.4/).
-11. Push your changes to a personal GitHub account and share the URL of your solution.
+## Docs
 
-**⚠️ Note:**
-All configurations (database credentials, MinIO/S3 settings, etc.) must be externalized using environment variables and configuration files. Avoid hardcoding sensitive information in the source code.
-
-## Evaluation Criteria 🏆
-
-- **Database Schema and Indexing:**  
-  Evaluate the efficiency of your database schema, including the creation of indices and the management of multiple tags per document.
-
-- **Design Patterns and Best Practices:**  
-  Assess the use of design patterns (e.g., Controller-Service-Repository or Hexagonal Architecture) and adherence to SOLID principles and clean code practices.
-
-- **Code Quality:**  
-  Review for readability, maintainability, proper exception handling, and overall coding standards.
-
-- **Testing:**  
-  Evaluate the quality and coverage of unit and integration tests. While no specific coverage percentage is required, tests should cover the most critical functionalities and edge cases.
-
-- **Spring Boot and Java Proficiency:**  
-  Demonstrate effective use of Spring Boot features and Java (preferably Java 17, though Java 8+ is acceptable).
-
-- **Additional Considerations:**
-
-  - Overall robustness and efficiency under concurrent file uploads.
-  - Validations on models and DTOs (e.g., non-null constraints).
-  - (Optional) OpenAPI documentation.
-
-## Challenge Priorities 🎯
-
-1. **Upload Service:**
-   - Primary focus on implementing a robust upload endpoint that efficiently handles large file (**up to 500MB of size**) uploads within the 50MB memory constraint.
-2. **Search Service:**
-   - Implement a flexible and efficient search endpoint with filtering, sorting, and pagination.
-3. **Download Service:**
-   - Provide document download functionality via temporary AWS S3 URLs.
-
-> **Note:** It is acceptable to implement a subset of the endpoints. However, the more complete your solution, the better.
-
-## Submission Instructions 📤
-
-Ensure that your solution includes the Dockerfile and database schema script, and that it adheres to the challenge requirements.
-
-### Additional Comments 💬
-
-Full rationale and trade-offs are in [`SOLUTION.md`](SOLUTION.md). Highlights:
-
-- **Upload uses presigned PUT.** `POST /document-management/upload` (JSON) persists
-  metadata as `PENDING` and returns a presigned PUT URL; the client uploads the PDF
-  **directly to MinIO**; `POST /document-management/upload/{id}/complete` confirms it
-  (reads real size/type via `statObject`) and marks it `COMPLETED`. File bytes never
-  flow through the service, so the memory limit and 10 concurrent 500MB uploads are met
-  by design. This deviates from the contract's `201`-with-no-body and adds a `/complete`
-  endpoint — a conscious choice, documented in `SOLUTION.md`.
-- **Two MinIO endpoints:** an internal one (`minio:9000`) for server-side
-  `statObject`/`removeObject`, and a public one (`localhost:9000`) used only to sign
-  presigned URLs the external client can reach.
-- **Memory:** the 50MB target is **unreachable on the JVM** — measured startup floor
-  ~128MB (see [`docs/memory-measurement.md`](docs/memory-measurement.md)). The service
-  ships on a tuned JVM at a realistic 256MB limit, with GraalVM native documented as the
-  evolution. This is explained rather than faked.
-- **Assumptions:** minimal validation (metadata + size ≤ 500MB; no magic-byte/antivirus
-  inspection, since the service never sees the bytes); search returns `COMPLETED`
-  documents only, ordered by `created_at desc` by default (the OpenAPI `sort` param is
-  honored when provided).
-- **Scaffolding fixes:** the provided `docker-compose.yml` referenced
-  `bitnami/postgresql:15.4.0` (removed from Docker Hub) — replaced with official
-  `postgres:15.4`.
-
-**Run it:** `cd docker && docker-compose up --build`. Then exercise the flow (register →
-PUT to the returned `uploadUrl` → complete → search → download).
-
----
-
-**⚠️ Important Note About the Challenge Completion ⚠️**
-
-Even if you are unable to complete the challenge 100%, please explain why you couldn't proceed, what doubts you had, and any blockers you encountered. We will review each case individually to determine how it impacts the evaluation.
-
-### **Note: Your approach, problem-solving skills, and reasoning are just as important as the final implementation.**
-
----
+- [docs/CHALLENGE.md](docs/CHALLENGE.md) — original challenge brief
+- [SOLUTION.md](SOLUTION.md) — approach, rationale, trade-offs
+- [docs/document-management-open-api.yml](docs/document-management-open-api.yml) — API contract
+- [docs/minio-local-setup.md](docs/minio-local-setup.md) — MinIO local setup
+- [docs/memory-measurement.md](docs/memory-measurement.md) — memory measurement evidence
 
