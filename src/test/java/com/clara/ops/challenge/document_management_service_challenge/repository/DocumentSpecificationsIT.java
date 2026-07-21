@@ -2,12 +2,15 @@ package com.clara.ops.challenge.document_management_service_challenge.repository
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.clara.ops.challenge.document_management_service_challenge.domain.*;
+import com.clara.ops.challenge.document_management_service_challenge.domain.DocumentEntity;
+import com.clara.ops.challenge.document_management_service_challenge.domain.DocumentStatus;
 import com.clara.ops.challenge.document_management_service_challenge.support.IntegrationTest;
-import java.util.*;
-import org.junit.jupiter.api.*;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.*;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 
 class DocumentSpecificationsIT extends IntegrationTest {
 

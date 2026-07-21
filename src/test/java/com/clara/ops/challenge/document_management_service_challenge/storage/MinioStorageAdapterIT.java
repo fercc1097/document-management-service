@@ -4,8 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.clara.ops.challenge.document_management_service_challenge.support.IntegrationTest;
 import java.net.URI;
-import java.net.http.*;
-import org.junit.jupiter.api.*;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 class MinioStorageAdapterIT extends IntegrationTest {

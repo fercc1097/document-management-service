@@ -4,13 +4,23 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import com.clara.ops.challenge.document_management_service_challenge.config.MinioProperties;
-import com.clara.ops.challenge.document_management_service_challenge.domain.*;
-import com.clara.ops.challenge.document_management_service_challenge.exception.*;
-import com.clara.ops.challenge.document_management_service_challenge.repository.*;
-import com.clara.ops.challenge.document_management_service_challenge.storage.*;
-import java.util.*;
-import org.junit.jupiter.api.*;
-import org.mockito.*;
+import com.clara.ops.challenge.document_management_service_challenge.domain.DocumentEntity;
+import com.clara.ops.challenge.document_management_service_challenge.domain.DocumentStatus;
+import com.clara.ops.challenge.document_management_service_challenge.exception.DocumentNotFoundException;
+import com.clara.ops.challenge.document_management_service_challenge.exception.DocumentNotReadyException;
+import com.clara.ops.challenge.document_management_service_challenge.exception.InvalidDocumentException;
+import com.clara.ops.challenge.document_management_service_challenge.repository.DocumentRepository;
+import com.clara.ops.challenge.document_management_service_challenge.repository.TagRepository;
+import com.clara.ops.challenge.document_management_service_challenge.storage.StoragePort;
+import com.clara.ops.challenge.document_management_service_challenge.storage.StoredObject;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
 
 class DocumentServiceTest {
 
