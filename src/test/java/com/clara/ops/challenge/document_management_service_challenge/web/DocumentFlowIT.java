@@ -5,15 +5,21 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.clara.ops.challenge.document_management_service_challenge.repository.DocumentRepository;
 import com.clara.ops.challenge.document_management_service_challenge.support.IntegrationTest;
 import java.net.URI;
-import java.net.http.*;
+import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
-import java.util.*;
-import org.junit.jupiter.api.*;
+import java.net.http.HttpResponse;
+import java.util.List;
+import java.util.Map;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.http.*;
+import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 
 class DocumentFlowIT extends IntegrationTest {
 

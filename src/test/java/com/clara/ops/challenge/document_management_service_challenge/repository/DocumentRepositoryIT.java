@@ -2,7 +2,9 @@ package com.clara.ops.challenge.document_management_service_challenge.repository
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.clara.ops.challenge.document_management_service_challenge.domain.*;
+import com.clara.ops.challenge.document_management_service_challenge.domain.DocumentEntity;
+import com.clara.ops.challenge.document_management_service_challenge.domain.DocumentStatus;
+import com.clara.ops.challenge.document_management_service_challenge.domain.TagEntity;
 import com.clara.ops.challenge.document_management_service_challenge.support.IntegrationTest;
 import java.util.Set;
 import java.util.UUID;
