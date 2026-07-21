@@ -2,7 +2,6 @@ package com.clara.ops.challenge.document_management_service_challenge.web;
 
 import com.clara.ops.challenge.document_management_service_challenge.domain.DocumentEntity;
 import com.clara.ops.challenge.document_management_service_challenge.domain.TagEntity;
-import com.clara.ops.challenge.document_management_service_challenge.exception.InvalidDocumentException;
 import com.clara.ops.challenge.document_management_service_challenge.service.DocumentService;
 import com.clara.ops.challenge.document_management_service_challenge.web.dto.*;
 import jakarta.validation.Valid;
@@ -20,9 +19,11 @@ public class DocumentController {
   private static final int MAX_PAGE_SIZE = 100;
 
   private final DocumentService service;
+  private final SortCriteriaParser sortParser;
 
-  public DocumentController(DocumentService service) {
+  public DocumentController(DocumentService service, SortCriteriaParser sortParser) {
     this.service = service;
+    this.sortParser = sortParser;
   }
 
   @PostMapping("/upload")
@@ -47,30 +48,10 @@ public class DocumentController {
       @RequestParam(required = false) List<String> sort) {
     int safePage = Math.max(page, 0);
     int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
-    Pageable pageable = PageRequest.of(safePage, safeSize, resolveSort(sort));
+    Pageable pageable = PageRequest.of(safePage, safeSize, sortParser.parse(sort));
     Page<DocumentEntity> result =
         service.search(filters.user(), filters.name(), filters.tags(), pageable);
     return toResponse(result);
-  }
-
-  private Sort resolveSort(List<String> sort) {
-    if (sort == null || sort.isEmpty()) {
-      return Sort.by(Sort.Direction.DESC, "createdAt");
-    }
-    List<Sort.Order> orders = new ArrayList<>();
-    for (String criterion : sort) {
-      String[] parts = criterion.split(",", 2);
-      String property = parts[0];
-      Sort.Direction direction = Sort.Direction.ASC;
-      if (parts.length > 1) {
-        String dir = parts[1].trim();
-        direction =
-            Sort.Direction.fromOptionalString(dir)
-                .orElseThrow(() -> new InvalidDocumentException("Invalid sort direction: " + dir));
-      }
-      orders.add(new Sort.Order(direction, property.trim()));
-    }
-    return Sort.by(orders);
   }
 
   @GetMapping("/download/{documentId}")
