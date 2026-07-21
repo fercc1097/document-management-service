@@ -48,7 +48,7 @@ service. Everything below follows from *keeping the bytes out of the service*.
 | 4 | **C-S-R + storage port** (`StoragePort` / `MinioStorageAdapter`)                                                                            | Slightly more indirection than a bare service          | Swap MinIO for real S3 without touching the service                |
 | 5 | **Spring Data JPA + Specifications** for dynamic filters                                                                                    | Hibernate adds resting footprint                       | — (data-path memory risk already removed)                          |
 | 6 | **Normalized many-to-many tags** with indices                                                                                               | Joins vs a denormalized array                          | Postgres `text[]` + GIN index for heavy tag search                 |
-| 7 | **Measured** the 50MB limit: unreachable on the JVM (startup floor ~128MB), so ship tuned JVM at a realistic limit and document the blocker | Does not meet the 50MB limit literally                 | GraalVM native image (~40–90MB) as the production evolution        |
+| 7 | **Measured** the 50MB limit: unreachable on the JVM (startup floor ~160MB), so ship tuned JVM at a realistic limit and document the blocker | Does not meet the 50MB limit literally                 | GraalVM native image (~40–90MB) as the production evolution        |
 | 8 | **Minimal validation** (metadata + `statObject`; no content scan)                                                                           | No magic-byte / antivirus inspection                   | Add scanning if requirements change                                |
 
 **Contract deviations (conscious):** the presigned flow returns the upload URL in the
@@ -67,7 +67,7 @@ would remove it if that layout requirement were relaxed.
 **Result:** Design approved. The 10-concurrent-uploads requirement is met *by design*
 (bytes never enter the service). For the 50MB limit, an early measurement spike
 ([`docs/memory-measurement.md`](docs/memory-measurement.md)) proved it is **unreachable
-on the JVM** — the stack's startup floor is ~96–128MB, ~2.5× the target. Decision:
+on the JVM** — the full app's startup floor is ~160MB, ~3× the target. Decision:
 ship on a tuned JVM at a realistic container limit (~256MB) and document the blocker
 with evidence (GraalVM native noted as the evolution). This follows the challenge's own
 guidance to explain blockers rather than fake a limit met only on paper.
@@ -138,7 +138,7 @@ from changing the base technology.** There are two distinct worlds:
 
 |                      Lever                      |                             What changes                              |       Typical footprint       |                 Cost                  |
 |-------------------------------------------------|-----------------------------------------------------------------------|-------------------------------|---------------------------------------|
-| **JVM tuning** (what we did)                    | SerialGC, cgroup-aware sizing, `-Xss`, fewer threads                  | **~128MB floor** here         | Low; can't cross the structural floor |
+| **JVM tuning** (what we did)                    | SerialGC, cgroup-aware sizing, `-Xss`, fewer threads                  | **~160MB floor** here         | Low; can't cross the structural floor |
 | **Different JVM: Eclipse OpenJ9**               | J9 instead of HotSpot, no code change                                 | ~40–60% less RSS than HotSpot | Another JVM, lower peak throughput    |
 | **AOT: GraalVM Native Image**                   | Compiles the *same* app to a binary; no JVM, no metaspace, no JIT     | **~40–90MB**                  | Slow build + reflection hints         |
 | **Native-first framework: Quarkus / Micronaut** | Dependency injection resolved at *build time*, not runtime reflection | **~20–50MB** native           | Rewrite the app                       |
@@ -147,7 +147,7 @@ from changing the base technology.** There are two distinct worlds:
 and developer productivity, not minimal memory. It leans on reflection and dynamic
 proxies, which load a large class graph → **large metaspace** (the dominant consumer we
 measured), on top of JIT code cache and JVM native memory. That is the opposite of a
-small footprint, which is why tuning bottoms out at ~128MB.
+small footprint, which is why tuning bottoms out at ~160MB.
 
 **What we'd do to actually hit 50MB:** compile this same app with GraalVM Native Image
 (most direct), or migrate to Quarkus/Micronaut, or switch to OpenJ9 without code
