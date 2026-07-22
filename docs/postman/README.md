@@ -1,35 +1,35 @@
-# Colección de Postman
+# Postman Collection
 
-Pruebas del Document Management Service.
+Tests for the Document Management Service.
 
-## Archivos
+## Files
 
-- `document-management-service.postman_collection.json` — la colección.
-- `document-management-local.postman_environment.json` — environment `Local` (`baseUrl`, `user`, `docName`).
+- `document-management-service.postman_collection.json` — the collection.
+- `document-management-local.postman_environment.json` — the `Local` environment (`baseUrl`, `user`, `docName`).
 
-## Importar
+## Import
 
-En Postman: **Import** → arrastra ambos archivos. Selecciona el environment **Document Management - Local** en el selector superior derecho.
+In Postman: **Import** → drag the two files. Then select the **Document Management - Local** environment in the selector at the top right.
 
-## Requisitos
+## Requirements
 
-El servicio, MinIO y Postgres deben estar levantados (ver [`../minio-local-setup.md`](../minio-local-setup.md)). Por defecto el servicio escucha en `http://localhost:8080` y MinIO en `http://localhost:9000`.
+The service, MinIO, and Postgres must run (refer to [`../minio-local-setup.md`](../minio-local-setup.md)). By default, the service listens on `http://localhost:8080` and MinIO listens on `http://localhost:9000`.
 
-## Flujo end-to-end
+## End-to-end flow
 
-El servicio no recibe los bytes de los archivos: usa **URLs presignadas de MinIO**. La carpeta *Flujo end-to-end* ejecuta el ciclo real en orden y encadena `id` / `uploadUrl` / `downloadUrl` entre pasos mediante scripts:
+The service does not get the file bytes. It uses **presigned MinIO URLs**. The *End-to-end flow* folder runs the real cycle in order. The scripts chain the `id`, the `uploadUrl`, and the `downloadUrl` between the steps:
 
-1. **Registrar documento** → devuelve `id` + `uploadUrl` (se guardan en variables de colección).
-2. **Subir bytes a MinIO** (`PUT {{uploadUrl}}`) → abre **Body → binary** y selecciona un `.pdf` local. Este PUT va directo a MinIO, no al servicio.
-3. **Confirmar subida** (`complete`) → el servicio valida el objeto y lo marca COMPLETED.
-4. **Buscar documentos**.
-5. **Obtener URL de descarga** → guarda `downloadUrl`.
-6. **Descargar bytes desde MinIO**.
+1. **Register the document** → returns the `id` and the `uploadUrl` (the scripts save them as collection variables).
+2. **Send the bytes to MinIO** (`PUT {{uploadUrl}}`) → open **Body → binary** and select a local `.pdf`. This PUT goes directly to MinIO, not to the service.
+3. **Confirm the upload** (`complete`) → the service validates the object and sets it to COMPLETED.
+4. **Search the documents**.
+5. **Get the download URL** → the script saves the `downloadUrl`.
+6. **Download the bytes from MinIO**.
 
-> El único paso manual es seleccionar el archivo en el paso 2. Puedes correr toda la carpeta con el **Collection Runner** (recuerda seleccionar el archivo primero, o el paso 3 devolverá 409).
+> The only manual step is the file selection in step 2. You can run the full folder with the **Collection Runner**. First select the file, or step 3 returns 409.
 
-La carpeta *Endpoints individuales* contiene los mismos endpoints aislados, incluyendo ejemplos de errores 400 (validación y path traversal) y el health check.
+The *Individual endpoints* folder has the same endpoints alone. It includes examples of 400 errors (validation and path traversal) and the health check.
 
-## Orden en `/search`
+## Order in `/search`
 
-El parámetro `sort` sigue el formato Spring-Data `property[,dirección]`, por ejemplo `sort=createdAt,desc` o `sort=name,asc`. Repite el parámetro para ordenar por varias propiedades. Sin `sort`, el orden por defecto es `createdAt` descendente.
+The `sort` parameter uses the Spring-Data format `property[,direction]`, for example `sort=createdAt,desc` or `sort=name,asc`. Repeat the parameter to sort by more than one property. Without `sort`, the default order is `createdAt` in the decreasing sequence.

@@ -2,16 +2,16 @@
   "info": {
     "_postman_id": "a1b2c3d4-0000-4a1b-8c2d-000000000001",
     "name": "Document Management Service",
-    "description": "Colección de pruebas para el Document Management Service.\n\nEl servicio NO recibe los bytes de los archivos: usa el patrón de **URLs presignadas de MinIO**. El ciclo completo de subida es de 3 pasos:\n\n1. `POST /upload` — registra el documento y devuelve `id` + `uploadUrl` (PUT presignado).\n2. `PUT {{uploadUrl}}` — el cliente sube los bytes **directo a MinIO** (no pasa por el servicio).\n3. `POST /upload/{id}/complete` — el servicio valida el objeto en MinIO y lo marca COMPLETED.\n\nLa carpeta **Flujo end-to-end** ejecuta ese ciclo en orden y encadena `id` / `uploadUrl` / `downloadUrl` automáticamente mediante scripts, de forma que se puede correr con el Collection Runner.\n\nRequisitos: importa también el environment `Document Management - Local` y ten el servicio + MinIO + Postgres levantados (ver `docs/minio-local-setup.md`).",
+    "description": "Test collection for the Document Management Service.\n\nThe service does NOT get the file bytes. It uses the **presigned MinIO URL** pattern. The full upload cycle has 3 steps:\n\n1. `POST /upload` — registers the document and returns the `id` and the `uploadUrl` (a presigned PUT).\n2. `PUT {{uploadUrl}}` — the client sends the bytes **directly to MinIO** (not through the service).\n3. `POST /upload/{id}/complete` — the service validates the object in MinIO and sets it to COMPLETED.\n\nThe **End-to-end flow** folder runs this cycle in order. The scripts chain the `id`, the `uploadUrl`, and the `downloadUrl` automatically. Thus you can run it with the Collection Runner.\n\nRequirements: import the `Document Management - Local` environment too, and run the service, MinIO, and Postgres (refer to `docs/minio-local-setup.md`).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
     {
-      "name": "Flujo end-to-end",
-      "description": "Ejecuta en orden: Upload -> PUT a MinIO -> Complete -> Search -> Download URL -> Download desde MinIO. Los scripts encadenan las variables automáticamente. Ideal para el Collection Runner.\n\nEl paso 2 (PUT a MinIO) requiere que selecciones un archivo PDF en la pestaña Body. Sin archivo, el paso Complete devolverá 409.",
+      "name": "End-to-end flow",
+      "description": "Runs in order: Upload -> PUT to MinIO -> Complete -> Search -> Download URL -> Download from MinIO. The scripts chain the variables automatically. This is good for the Collection Runner.\n\nStep 2 (PUT to MinIO) needs a PDF file. Select it in the Body tab. Without a file, the Complete step returns 409.",
       "item": [
         {
-          "name": "1. Registrar documento (obtener uploadUrl)",
+          "name": "1. Register the document (get the uploadUrl)",
           "event": [
             {
               "listen": "test",
@@ -43,21 +43,21 @@
               "host": ["{{baseUrl}}"],
               "path": ["document-management", "upload"]
             },
-            "description": "Registra el documento y devuelve `id` + `uploadUrl` (PUT presignado, expira en 3600s).\n\nValidaciones: `user` y `name` obligatorios; `name` debe terminar en `.pdf`; `tags` no nulo con elementos no vacíos; `user`/`name` no pueden contener `/ \\ . ..` (anti path-traversal)."
+            "description": "Registers the document and returns the `id` and the `uploadUrl` (a presigned PUT; it expires after 3600s).\n\nValidations: `user` and `name` are mandatory; `name` must end with `.pdf`; `tags` must not be null and its elements must not be empty; `user` and `name` must not contain `/ \\ . ..` (path-traversal guard)."
           }
         },
         {
-          "name": "2. Subir bytes a MinIO (PUT presignado)",
+          "name": "2. Send the bytes to MinIO (presigned PUT)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('200 OK desde MinIO', () => pm.response.to.have.status(200));",
-                  "pm.test('Recuerda seleccionar un archivo en Body > binary', function () {",
+                  "pm.test('200 OK from MinIO', () => pm.response.to.have.status(200));",
+                  "pm.test('Select a file in Body > binary', function () {",
                   "  if (pm.response.code !== 200) {",
-                  "    console.warn('Si falla: abre este request > Body > selecciona un archivo .pdf. La uploadUrl expira a los 3600s.');",
+                  "    console.warn('If it fails: open this request > Body > select a .pdf file. The uploadUrl expires after 3600s.');",
                   "  }",
                   "});"
                 ]
@@ -78,11 +78,11 @@
               "raw": "{{uploadUrl}}",
               "host": ["{{uploadUrl}}"]
             },
-            "description": "Sube los bytes del archivo directamente a MinIO usando la URL presignada del paso 1. El servicio NO interviene aquí.\n\n**Acción manual requerida:** abre la pestaña **Body**, elige **binary** y selecciona un archivo `.pdf` local. La firma de la URL presignada no fija el Content-Type, así que Postman puede enviarlo sin header adicional."
+            "description": "Sends the file bytes directly to MinIO with the presigned URL from step 1. The service does NOT take part here.\n\n**Manual action needed:** open the **Body** tab, select **binary**, and select a local `.pdf` file. The signature of the presigned URL does not fix the Content-Type. Thus Postman can send the file with no extra header."
           }
         },
         {
-          "name": "3. Confirmar subida (complete)",
+          "name": "3. Confirm the upload (complete)",
           "event": [
             {
               "listen": "test",
@@ -90,9 +90,9 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('200 OK', () => pm.response.to.have.status(200));",
-                  "// 409 => el objeto aún no está en MinIO (¿ejecutaste el paso 2 con un archivo?)",
-                  "// 404 => documentId inexistente",
-                  "// 400 => archivo excede max-file-size-bytes"
+                  "// 409 => the object is not in MinIO yet (did you run step 2 with a file?)",
+                  "// 404 => the documentId does not exist",
+                  "// 400 => the file is larger than max-file-size-bytes"
                 ]
               }
             }
@@ -105,11 +105,11 @@
               "host": ["{{baseUrl}}"],
               "path": ["document-management", "upload", "{{documentId}}", "complete"]
             },
-            "description": "El servicio consulta el objeto en MinIO (`stat`), valida el tamaño contra `max-file-size-bytes` (500MB por defecto), guarda `size` y `fileType`, y marca el documento como COMPLETED.\n\nRespuestas: 200 OK · 404 no existe · 409 objeto aún no subido · 400 excede tamaño máximo."
+            "description": "The service reads the object in MinIO (`stat`), validates the size against `max-file-size-bytes` (500MB by default), saves the `size` and the `fileType`, and sets the document to COMPLETED.\n\nResponses: 200 OK · 404 does not exist · 409 the object is not uploaded yet · 400 larger than the maximum size."
           }
         },
         {
-          "name": "4. Buscar documentos",
+          "name": "4. Search the documents",
           "event": [
             {
               "listen": "test",
@@ -118,7 +118,7 @@
                 "exec": [
                   "pm.test('200 OK', () => pm.response.to.have.status(200));",
                   "const res = pm.response.json();",
-                  "pm.test('Contiene metadata y documents', function () {",
+                  "pm.test('Has metadata and documents', function () {",
                   "  pm.expect(res).to.have.property('metadata');",
                   "  pm.expect(res).to.have.property('documents');",
                   "});"
@@ -141,16 +141,16 @@
               "host": ["{{baseUrl}}"],
               "path": ["document-management", "search"],
               "query": [
-                { "key": "page", "value": "0", "description": "Índice de página (>= 0). Default 0." },
-                { "key": "size", "value": "20", "description": "Tamaño de página (1..100). Default 20." },
-                { "key": "sort", "value": "createdAt,desc", "description": "Formato Spring-Data `property[,asc|desc]`, ej. `name,asc`. Repite el parámetro para multi-sort. Sin `sort` el default es createdAt DESC." }
+                { "key": "page", "value": "0", "description": "The page index (>= 0). Default 0." },
+                { "key": "size", "value": "20", "description": "The page size (1..100). Default 20." },
+                { "key": "sort", "value": "createdAt,desc", "description": "The Spring-Data format `property[,asc|desc]`, for example `name,asc`. Repeat the parameter for multi-sort. Without `sort`, the default is createdAt DESC." }
               ]
             },
-            "description": "Búsqueda paginada. Todos los filtros del body son opcionales (`user`, `name`, `tags`). Sin filtros ({}), devuelve todos los documentos.\n\nOrden: `property[,dirección]` (ej. `createdAt,desc`, `name,asc`). Sin `sort`, el default es createdAt DESC.\n\nRespuestas: 200 OK · 400 si la propiedad o la dirección de sort son inválidas."
+            "description": "Paginated search. All the body filters are optional (`user`, `name`, `tags`). With no filters ({}), it returns all the documents.\n\nOrder: `property[,direction]` (for example `createdAt,desc`, `name,asc`). Without `sort`, the default is createdAt DESC.\n\nResponses: 200 OK · 400 if the sort property or the sort direction is invalid."
           }
         },
         {
-          "name": "5. Obtener URL de descarga",
+          "name": "5. Get the download URL",
           "event": [
             {
               "listen": "test",
@@ -173,18 +173,18 @@
               "host": ["{{baseUrl}}"],
               "path": ["document-management", "download", "{{documentId}}"]
             },
-            "description": "Devuelve una URL presignada GET de MinIO (expira 3600s). Requiere que el documento esté en estado COMPLETED.\n\nRespuestas: 200 OK · 404 no existe · 409 no está COMPLETED."
+            "description": "Returns a presigned GET URL from MinIO (it expires after 3600s). The document must be in the COMPLETED state.\n\nResponses: 200 OK · 404 does not exist · 409 not COMPLETED."
           }
         },
         {
-          "name": "6. Descargar bytes desde MinIO (GET presignado)",
+          "name": "6. Download the bytes from MinIO (presigned GET)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('200 OK desde MinIO', () => pm.response.to.have.status(200));"
+                  "pm.test('200 OK from MinIO', () => pm.response.to.have.status(200));"
                 ]
               }
             }
@@ -196,14 +196,14 @@
               "raw": "{{downloadUrl}}",
               "host": ["{{downloadUrl}}"]
             },
-            "description": "Descarga los bytes del archivo directamente desde MinIO usando la URL presignada del paso 5. Usa **Save Response > Save to a file** para guardar el PDF."
+            "description": "Downloads the file bytes directly from MinIO with the presigned URL from step 5. Use **Save Response > Save to a file** to save the PDF."
           }
         }
       ]
     },
     {
-      "name": "Endpoints individuales",
-      "description": "Los mismos endpoints de forma aislada, para probar casos concretos sin ejecutar todo el flujo.",
+      "name": "Individual endpoints",
+      "description": "The same endpoints alone. Use them to test specific cases without a run of the full flow.",
       "item": [
         {
           "name": "Health check",
@@ -215,11 +215,11 @@
               "host": ["{{baseUrl}}"],
               "path": ["actuator", "health"]
             },
-            "description": "Estado agregado UP/DOWN. También disponibles `/actuator/health/liveness` y `/actuator/health/readiness`."
+            "description": "The aggregate UP/DOWN status. `/actuator/health/liveness` and `/actuator/health/readiness` are also available."
           }
         },
         {
-          "name": "Upload - validación fallida (name sin .pdf)",
+          "name": "Upload - failed validation (name without .pdf)",
           "request": {
             "method": "POST",
             "header": [
@@ -235,11 +235,11 @@
               "host": ["{{baseUrl}}"],
               "path": ["document-management", "upload"]
             },
-            "description": "Ejemplo de 400: `name` no termina en `.pdf`. Devuelve el record ErrorResponse con `status`, `error` y `messages`."
+            "description": "A 400 example: `name` does not end with `.pdf`. It returns the ErrorResponse record with `status`, `error`, and `messages`."
           }
         },
         {
-          "name": "Upload - path traversal rechazado",
+          "name": "Upload - path traversal rejected",
           "request": {
             "method": "POST",
             "header": [
@@ -255,11 +255,11 @@
               "host": ["{{baseUrl}}"],
               "path": ["document-management", "upload"]
             },
-            "description": "Ejemplo de 400: `user`/`name` no pueden contener `/ \\ . ..`."
+            "description": "A 400 example: `user` and `name` must not contain `/ \\ . ..`."
           }
         },
         {
-          "name": "Search - sin filtros (todos)",
+          "name": "Search - no filters (all)",
           "request": {
             "method": "POST",
             "header": [
@@ -279,11 +279,11 @@
                 { "key": "size", "value": "20" }
               ]
             },
-            "description": "Búsqueda sin filtros: devuelve todos los documentos paginados."
+            "description": "A search with no filters: it returns all the documents in pages."
           }
         },
         {
-          "name": "Search - ordenado por nombre asc (sort=name,asc)",
+          "name": "Search - sorted by name asc (sort=name,asc)",
           "request": {
             "method": "POST",
             "header": [
@@ -301,14 +301,14 @@
               "query": [
                 { "key": "page", "value": "0" },
                 { "key": "size", "value": "20" },
-                { "key": "sort", "value": "name,asc", "description": "property[,asc|desc]. Propiedades válidas: name, size, createdAt." }
+                { "key": "sort", "value": "name,asc", "description": "property[,asc|desc]. Valid properties: name, size, createdAt." }
               ]
             },
-            "description": "Ordena por `name` ascendente. El formato es `property[,dirección]`; para descendente usa `sort=name,desc`."
+            "description": "Sorts by `name` in the increasing sequence. The format is `property[,direction]`. For the decreasing sequence, use `sort=name,desc`."
           }
         },
         {
-          "name": "Download - por documentId",
+          "name": "Download - by documentId",
           "request": {
             "method": "GET",
             "header": [],
@@ -317,7 +317,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["document-management", "download", "{{documentId}}"]
             },
-            "description": "Usa la variable {{documentId}} (poblada por el flujo end-to-end) o pega un UUID manualmente."
+            "description": "Uses the {{documentId}} variable (the end-to-end flow sets it) or paste a UUID manually."
           }
         }
       ]
