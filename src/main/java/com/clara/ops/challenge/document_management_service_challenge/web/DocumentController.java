@@ -7,6 +7,7 @@ import com.clara.ops.challenge.document_management_service_challenge.web.dto.Doc
 import com.clara.ops.challenge.document_management_service_challenge.web.dto.PaginatedDocumentSearch;
 import com.clara.ops.challenge.document_management_service_challenge.web.dto.UploadDocumentRequest;
 import com.clara.ops.challenge.document_management_service_challenge.web.dto.UploadDocumentResponse;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.UUID;
@@ -60,9 +61,14 @@ public class DocumentController {
       @RequestBody DocumentSearchFilters filters,
       @RequestParam(defaultValue = "0") int page,
       @RequestParam(defaultValue = "20") int size,
-      @RequestParam(required = false) List<String> sort) {
+      HttpServletRequest request) {
     int safePage = Math.max(page, 0);
     int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+    // Read raw values: binding to List<String> makes Spring split "createdAt,desc" on the comma,
+    // turning the direction into a phantom property. getParameterValues keeps each criterion whole,
+    // so "property,direction" (and repeated ?sort= for multi-sort) reach the parser intact.
+    String[] rawSort = request.getParameterValues("sort");
+    List<String> sort = rawSort == null ? List.of() : List.of(rawSort);
     Pageable pageable = PageRequest.of(safePage, safeSize, sortParser.parse(sort));
     Page<DocumentEntity> result =
         service.search(filters.user(), filters.name(), filters.tags(), pageable);

@@ -87,6 +87,25 @@ class DocumentControllerTest {
   }
 
   @Test
+  void searchHonorsDescendingDirection() throws Exception {
+    when(service.search(any(), any(), any(), any())).thenReturn(new PageImpl<>(List.of()));
+    mvc.perform(
+            post("/document-management/search?sort=createdAt,desc")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+        .andExpect(status().isOk());
+
+    ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+    verify(service).search(any(), any(), any(), pageableCaptor.capture());
+    Sort sort = pageableCaptor.getValue().getSort();
+    Sort.Order order = sort.getOrderFor("createdAt");
+    assertThat(order).isNotNull();
+    assertThat(order.getDirection()).isEqualTo(Sort.Direction.DESC);
+    // The direction token must not leak in as a phantom sort property.
+    assertThat(sort.getOrderFor("desc")).isNull();
+  }
+
+  @Test
   void completeWithMalformedUuidMapsTo400() throws Exception {
     mvc.perform(post("/document-management/upload/not-a-uuid/complete"))
         .andExpect(status().isBadRequest())
