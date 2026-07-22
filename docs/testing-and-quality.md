@@ -84,15 +84,44 @@ JaCoCo measures the coverage during the `verify` phase. The report is at
 | `web.error`                    | 75.0%         |
 | root (application entry point) | 37.5%         |
 
-### Notes on the gaps
+### Why the coverage is not 100%
 
-- **The application entry point** (`...ChallengeApplication`) has a low value
-  because it is only the `main` method. A unit test does not run it.
-- **`web.error` (GlobalExceptionHandler)** and **`storage` (MinioStorageAdapter)**
-  are the main gaps. They hold defensive branches for the rare MinIO faults. The
-  happy path and the common faults have tests; some rare fault branches do not.
-- The branch coverage (75.9%) is lower than the line coverage because of these
-  defensive branches.
+The coverage is 94.1% of the lines and 75.9% of the branches. It is not 100%.
+This is a decision on purpose. The 13 uncovered lines and the 13 uncovered
+branches are in code with a low test value. A test for this code tests a mock,
+not the real logic.
+
+The build does not force a coverage target. Here JaCoCo only reports the numbers.
+It does not fail the build for the coverage.
+
+#### The uncovered code, by class
+
+|           Class           |         Gap         |                                                                        Reason it has no test                                                                         |
+|---------------------------|---------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `...ChallengeApplication` | 2 lines             | The `main` method. It only calls `SpringApplication.run(...)`. A unit test does not run it.                                                                          |
+| `MinioStorageAdapter`     | 6 lines, 2 branches | The defensive `catch` blocks for the rare MinIO faults (a network fault or an unexpected SDK error). A test reaches them only if it forces the MinIO client to fail. |
+| `GlobalExceptionHandler`  | 3 lines             | The `storage()` handler that maps a `StorageException` to a 500. No test forces a MinIO fault through the HTTP layer.                                                |
+| `DocumentSpecifications`  | 4 branches          | The null-check branches of the dynamic filters (a filter is present or a filter is absent). Not every combination runs.                                              |
+| `DocumentService`         | 6 branches          | The guard branches of the validations. Not every true/false combination runs.                                                                                        |
+| `DocumentEntity`          | 1 branch            | The `equals` / `hashCode` that Lombok generates.                                                                                                                     |
+
+#### Why this is acceptable
+
+- The business logic and the HTTP layer have full coverage (`web` 100%,
+  `repository` 99.2%, `service` 93.5%). The gaps are defensive plumbing, not
+  logic.
+- The branch coverage (75.9%) is lower than the line coverage. The reason is
+  these defensive branches.
+- A jump to ~100% needs artificial mocks (a MinIO client that throws) or an
+  exclude for the `main` method. That work tests the mock more than the code.
+  Thus I do not chase 100%.
+
+#### How to raise it later, if it becomes a requirement
+
+- Add an `<excludes>` for the entry point (`...ChallengeApplication`) in the
+  JaCoCo plugin, so the report does not count the `main` method.
+- Add 2–3 tests that mock the `MinioClient` to throw. These cover the `catch`
+  blocks in `MinioStorageAdapter` and the `storage()` handler.
 
 ## Code quality (Spotless)
 
