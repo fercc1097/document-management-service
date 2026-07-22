@@ -1,0 +1,331 @@
+{
+  "info": {
+    "_postman_id": "a1b2c3d4-0000-4a1b-8c2d-000000000001",
+    "name": "Document Management Service",
+    "description": "Colección de pruebas para el Document Management Service.\n\nEl servicio NO recibe los bytes de los archivos: usa el patrón de **URLs presignadas de MinIO**. El ciclo completo de subida es de 3 pasos:\n\n1. `POST /upload` — registra el documento y devuelve `id` + `uploadUrl` (PUT presignado).\n2. `PUT {{uploadUrl}}` — el cliente sube los bytes **directo a MinIO** (no pasa por el servicio).\n3. `POST /upload/{id}/complete` — el servicio valida el objeto en MinIO y lo marca COMPLETED.\n\nLa carpeta **Flujo end-to-end** ejecuta ese ciclo en orden y encadena `id` / `uploadUrl` / `downloadUrl` automáticamente mediante scripts, de forma que se puede correr con el Collection Runner.\n\nRequisitos: importa también el environment `Document Management - Local` y ten el servicio + MinIO + Postgres levantados (ver `docs/minio-local-setup.md`).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Flujo end-to-end",
+      "description": "Ejecuta en orden: Upload -> PUT a MinIO -> Complete -> Search -> Download URL -> Download desde MinIO. Los scripts encadenan las variables automáticamente. Ideal para el Collection Runner.\n\nEl paso 2 (PUT a MinIO) requiere que selecciones un archivo PDF en la pestaña Body. Sin archivo, el paso Complete devolverá 409.",
+      "item": [
+        {
+          "name": "1. Registrar documento (obtener uploadUrl)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const res = pm.response.json();",
+                  "pm.collectionVariables.set('documentId', res.id);",
+                  "pm.collectionVariables.set('uploadUrl', res.uploadUrl);",
+                  "console.log('documentId =', res.id);",
+                  "console.log('uploadUrl  =', res.uploadUrl);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user\": \"{{user}}\",\n  \"name\": \"{{docName}}\",\n  \"tags\": [\"legal\", \"2024\"]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/document-management/upload",
+              "host": ["{{baseUrl}}"],
+              "path": ["document-management", "upload"]
+            },
+            "description": "Registra el documento y devuelve `id` + `uploadUrl` (PUT presignado, expira en 3600s).\n\nValidaciones: `user` y `name` obligatorios; `name` debe terminar en `.pdf`; `tags` no nulo con elementos no vacíos; `user`/`name` no pueden contener `/ \\ . ..` (anti path-traversal)."
+          }
+        },
+        {
+          "name": "2. Subir bytes a MinIO (PUT presignado)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK desde MinIO', () => pm.response.to.have.status(200));",
+                  "pm.test('Recuerda seleccionar un archivo en Body > binary', function () {",
+                  "  if (pm.response.code !== 200) {",
+                  "    console.warn('Si falla: abre este request > Body > selecciona un archivo .pdf. La uploadUrl expira a los 3600s.');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "file",
+              "file": {},
+              "options": {
+                "raw": { "language": "text" }
+              }
+            },
+            "url": {
+              "raw": "{{uploadUrl}}",
+              "host": ["{{uploadUrl}}"]
+            },
+            "description": "Sube los bytes del archivo directamente a MinIO usando la URL presignada del paso 1. El servicio NO interviene aquí.\n\n**Acción manual requerida:** abre la pestaña **Body**, elige **binary** y selecciona un archivo `.pdf` local. La firma de la URL presignada no fija el Content-Type, así que Postman puede enviarlo sin header adicional."
+          }
+        },
+        {
+          "name": "3. Confirmar subida (complete)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "// 409 => el objeto aún no está en MinIO (¿ejecutaste el paso 2 con un archivo?)",
+                  "// 404 => documentId inexistente",
+                  "// 400 => archivo excede max-file-size-bytes"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/document-management/upload/{{documentId}}/complete",
+              "host": ["{{baseUrl}}"],
+              "path": ["document-management", "upload", "{{documentId}}", "complete"]
+            },
+            "description": "El servicio consulta el objeto en MinIO (`stat`), valida el tamaño contra `max-file-size-bytes` (500MB por defecto), guarda `size` y `fileType`, y marca el documento como COMPLETED.\n\nRespuestas: 200 OK · 404 no existe · 409 objeto aún no subido · 400 excede tamaño máximo."
+          }
+        },
+        {
+          "name": "4. Buscar documentos",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const res = pm.response.json();",
+                  "pm.test('Contiene metadata y documents', function () {",
+                  "  pm.expect(res).to.have.property('metadata');",
+                  "  pm.expect(res).to.have.property('documents');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user\": \"{{user}}\",\n  \"name\": null,\n  \"tags\": [\"legal\"]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/document-management/search?page=0&size=20&sort=createdAt,desc",
+              "host": ["{{baseUrl}}"],
+              "path": ["document-management", "search"],
+              "query": [
+                { "key": "page", "value": "0", "description": "Índice de página (>= 0). Default 0." },
+                { "key": "size", "value": "20", "description": "Tamaño de página (1..100). Default 20." },
+                { "key": "sort", "value": "createdAt,desc", "description": "Formato Spring-Data `property[,asc|desc]`, ej. `name,asc`. Repite el parámetro para multi-sort. Sin `sort` el default es createdAt DESC." }
+              ]
+            },
+            "description": "Búsqueda paginada. Todos los filtros del body son opcionales (`user`, `name`, `tags`). Sin filtros ({}), devuelve todos los documentos.\n\nOrden: `property[,dirección]` (ej. `createdAt,desc`, `name,asc`). Sin `sort`, el default es createdAt DESC.\n\nRespuestas: 200 OK · 400 si la propiedad o la dirección de sort son inválidas."
+          }
+        },
+        {
+          "name": "5. Obtener URL de descarga",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const res = pm.response.json();",
+                  "pm.collectionVariables.set('downloadUrl', res.url);",
+                  "console.log('downloadUrl =', res.url);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/document-management/download/{{documentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["document-management", "download", "{{documentId}}"]
+            },
+            "description": "Devuelve una URL presignada GET de MinIO (expira 3600s). Requiere que el documento esté en estado COMPLETED.\n\nRespuestas: 200 OK · 404 no existe · 409 no está COMPLETED."
+          }
+        },
+        {
+          "name": "6. Descargar bytes desde MinIO (GET presignado)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK desde MinIO', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{downloadUrl}}",
+              "host": ["{{downloadUrl}}"]
+            },
+            "description": "Descarga los bytes del archivo directamente desde MinIO usando la URL presignada del paso 5. Usa **Save Response > Save to a file** para guardar el PDF."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Endpoints individuales",
+      "description": "Los mismos endpoints de forma aislada, para probar casos concretos sin ejecutar todo el flujo.",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/actuator/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["actuator", "health"]
+            },
+            "description": "Estado agregado UP/DOWN. También disponibles `/actuator/health/liveness` y `/actuator/health/readiness`."
+          }
+        },
+        {
+          "name": "Upload - validación fallida (name sin .pdf)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user\": \"alice\",\n  \"name\": \"contract.txt\",\n  \"tags\": [\"legal\"]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/document-management/upload",
+              "host": ["{{baseUrl}}"],
+              "path": ["document-management", "upload"]
+            },
+            "description": "Ejemplo de 400: `name` no termina en `.pdf`. Devuelve el record ErrorResponse con `status`, `error` y `messages`."
+          }
+        },
+        {
+          "name": "Upload - path traversal rechazado",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user\": \"../etc\",\n  \"name\": \"passwd.pdf\",\n  \"tags\": [\"x\"]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/document-management/upload",
+              "host": ["{{baseUrl}}"],
+              "path": ["document-management", "upload"]
+            },
+            "description": "Ejemplo de 400: `user`/`name` no pueden contener `/ \\ . ..`."
+          }
+        },
+        {
+          "name": "Search - sin filtros (todos)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/document-management/search?page=0&size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["document-management", "search"],
+              "query": [
+                { "key": "page", "value": "0" },
+                { "key": "size", "value": "20" }
+              ]
+            },
+            "description": "Búsqueda sin filtros: devuelve todos los documentos paginados."
+          }
+        },
+        {
+          "name": "Search - ordenado por nombre asc (sort=name,asc)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/document-management/search?page=0&size=20&sort=name,asc",
+              "host": ["{{baseUrl}}"],
+              "path": ["document-management", "search"],
+              "query": [
+                { "key": "page", "value": "0" },
+                { "key": "size", "value": "20" },
+                { "key": "sort", "value": "name,asc", "description": "property[,asc|desc]. Propiedades válidas: name, size, createdAt." }
+              ]
+            },
+            "description": "Ordena por `name` ascendente. El formato es `property[,dirección]`; para descendente usa `sort=name,desc`."
+          }
+        },
+        {
+          "name": "Download - por documentId",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/document-management/download/{{documentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["document-management", "download", "{{documentId}}"]
+            },
+            "description": "Usa la variable {{documentId}} (poblada por el flujo end-to-end) o pega un UUID manualmente."
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "documentId", "value": "", "type": "string" },
+    { "key": "uploadUrl", "value": "", "type": "string" },
+    { "key": "downloadUrl", "value": "", "type": "string" }
+  ]
+}

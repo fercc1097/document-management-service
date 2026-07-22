@@ -1,27 +1,32 @@
 # Memory Measurement — 50MB Constraint
 
-**Date:** 2026-07-20 · measured on Apple Silicon (arm64), Docker Desktop 27.3.1.
+**Date:** 2026-07-20 · I measured this on Apple Silicon (arm64), Docker Desktop 27.3.1.
 
 ## Goal
 
-Determine empirically whether the service can run under the challenge's **50MB
-container memory limit**, before committing the runtime architecture (design doc D7).
+I had to find, from evidence, if the service can run under the challenge's **50MB
+container memory limit**. I did this before I set the runtime architecture (design
+doc D7).
 
 ## Setup
 
-A minimal *walking skeleton* exercising the real stack that drives footprint:
-Spring Boot 3.4.3 MVC (Tomcat) + Spring Data JPA (Hibernate) + Hikari + MinIO SDK,
-connected to PostgreSQL, one trivial `/health` endpoint. The file data-path is already
-**out of the service** (presigned PUT), so this measures the *resting* JVM floor.
+I built a minimal *walking skeleton*. It uses the real stack that sets the
+footprint: Spring Boot 3.4.3 MVC (Tomcat), Spring Data JPA (Hibernate), Hikari,
+and the MinIO SDK. It connects to PostgreSQL. It has one simple `/health`
+endpoint. The file data-path is already **out of the service** because of the
+presigned PUT. Thus this measurement shows the JVM floor at rest.
 
 - Base image: `eclipse-temurin:17-jre` (non-Alpine).
-- `JAVA_OPTS=-XX:MaxRAMPercentage=75 -XX:+UseSerialGC` (SerialGC = lowest GC overhead).
-- `UseContainerSupport` on (default): the JVM sizes the heap from the cgroup limit.
+- `JAVA_OPTS=-XX:MaxRAMPercentage=75 -XX:+UseSerialGC`. SerialGC gives the lowest
+  GC overhead.
+- `UseContainerSupport` is on (the default). The JVM sets the heap size from the
+  cgroup limit.
 
 ## Results — walking-skeleton spike
 
-> This first sweep used a minimal walking skeleton to find the JVM floor early and cheaply.
-> The **full application floor is higher (~160 MB)** — see the normal-vs-tuned table below.
+> This first sweep used a minimal walking skeleton. The goal was to find the JVM
+> floor early and at a low cost. The **full application floor is higher
+> (~160 MB)** — refer to the normal-vs-tuned table below.
 
 | Container memory limit |         Outcome          |           Observed usage            |
 |------------------------|--------------------------|-------------------------------------|
@@ -35,55 +40,63 @@ connected to PostgreSQL, one trivial `/health` endpoint. The file data-path is a
 
 ## Conclusion
 
-The walking skeleton's startup floor is **between 96 and 128 MB**; the full application's
-is **~160 MB** (next section) — roughly **3× the 50MB target**. 50MB is **unreachable on
-the JVM**, even with the data-path removed,
-SerialGC, and container-aware sizing. The cause is structural, not tuning:
-class-metadata (metaspace) for the Spring/Hibernate class graph, a minimum viable
-heap, JIT code cache, thread stacks, and JVM native memory together exceed 50MB before
-any request is served. This is why `-Xmx50m` alone (used by most reference solutions)
-is misleading: it caps only the heap; under a real 50MB cgroup the process never boots.
+The startup floor of the walking skeleton is **between 96 and 128 MB**. The
+floor of the full application is **~160 MB** (refer to the next section). This
+is approximately **3 times the 50MB target**. You cannot get 50MB on the JVM,
+even with the data-path out, with SerialGC, and with container-aware sizing.
+
+The cause is structural. It is not the tuning. The class-metadata (metaspace)
+for the Spring and Hibernate class graph, a minimum heap, the JIT code cache,
+the thread stacks, and the JVM native memory are more than 50MB together. This
+is true before the service answers a request. Thus `-Xmx50m` alone (most
+reference solutions use it) gives a wrong result: it limits only the heap. With
+a real 50MB cgroup, the process does not start.
 
 ## Full application — normal vs tuned JVM
 
-Re-measured against the **complete application** image (not the skeleton), with PostgreSQL
-+ MinIO running, under decreasing container limits:
+I measured the **complete application** image again (not the skeleton). I ran
+PostgreSQL and MinIO. I used smaller container limits each time:
 
 |                JVM config                | 50 MB | 128 MB |  160 MB   |  256 MB   |  512 MB   |
 |------------------------------------------|-------|--------|-----------|-----------|-----------|
 | **Defaults** (G1GC, RAMPct 25%)          | —     | ❌ OOM  | —         | ✅ 232 MiB | ✅ 271 MiB |
 | **Tuned** (SerialGC, RAMPct 75, Xss512k) | ❌ OOM | ❌ OOM  | ✅ 160 MiB | ✅ 211 MiB | —         |
 
-The full app's startup floor is **~160 MB** (tuned) — about **3× the 50 MB target**.
-Tuning lowers both the floor (defaults need ~256 MB) and the RSS at a given limit, but
-neither config comes close to 50 MB. The service ships at **256 MB**.
+The startup floor of the full application is **~160 MB** (tuned). This is
+approximately **3 times the 50 MB target**. The tuning lowers the floor (the
+defaults need ~256 MB) and the RSS at a given limit. But neither config gets
+near 50 MB. The service uses **256 MB**.
 
 ## Decision (design doc D7)
 
-**Ship on a tuned JVM with a realistic container limit (~256MB) and document the
-blocker with this evidence.** The 50MB limit is treated as aspirational and explained,
-not faked. Rationale: the challenge explicitly values reasoning and honest reporting of
-blockers over a limit met only on paper.
+**The service uses a tuned JVM with a practical container limit (~256MB). This
+document records the blocker with the evidence.** The 50MB limit is a goal. This
+document explains it. It does not fake it. The reason: the challenge values the
+reasoning and the honest report of the blockers more than a limit that is true
+only on paper.
 
-**Evolution path:** a GraalVM native image (Spring AOT) is the only lever that could
-approach 50MB — it removes metaspace/JIT and typically lands ~40–90 MB RSS — but with
-Hibernate it may still not meet 50MB strictly, and it adds significant build/AOT cost.
-Documented as the production evolution if the limit becomes a hard requirement.
+**Evolution path:** a GraalVM native image (Spring AOT) is the only lever that
+can get near 50MB. It removes the metaspace and the JIT. It usually reaches
+~40–90 MB RSS. But with Hibernate it can still miss 50MB. It also adds a large
+build and AOT cost. This document records it as the production evolution if the
+limit becomes a hard requirement.
 
 ## Under concurrent load — full containerized stack (Task 8)
 
-With the complete `docker-compose` stack (service + PostgreSQL + MinIO), 10 concurrent
-flows (register → presigned PUT straight to MinIO → complete), all sharing a brand-new
-tag, were run against the service capped at 256M:
+I used the complete `docker-compose` stack (service, PostgreSQL, and MinIO). I
+ran 10 parallel flows (register → presigned PUT directly to MinIO → complete).
+All 10 flows shared a new tag. The service had a limit of 256M:
 
-- **10/10 flows succeeded** (`PUT 200`, `complete 200`); search by the shared tag
-  returns all 10 documents. The presigned design keeps file bytes out of the service, so
-  10 parallel 500MB uploads never pressure its memory.
-- **Service stayed stable under the 256M limit** (peak RSS ~254 MiB, no OOM-kill). The
-  peak sits near the cap because the JVM grows its heap to the available headroom
-  (`MaxRAMPercentage=75`), not because it needs it — the full-app startup floor is ~160MB.
+- **10 of 10 flows passed** (`PUT 200`, `complete 200`). A search by the shared
+  tag returns all 10 documents. The presigned design keeps the file bytes out of
+  the service. Thus 10 parallel 500MB uploads do not fill its memory.
+- **The service stayed stable under the 256M limit** (peak RSS ~254 MiB, no
+  OOM-kill). The peak is near the cap because the JVM grows its heap to the free
+  space (`MaxRAMPercentage=75`). It does not need this memory — the startup floor
+  of the full application is ~160MB.
 
-Three integration bugs that no unit/integration test caught surfaced only here, in the
-real containerized stack, and were fixed (see `SOLUTION.md`, Step 3): a removed
-`bitnami/postgresql` image, an unpinned MinIO region breaking presigned signing from
-inside the container, and a `tags.name` unique-constraint race under concurrency.
+Three integration bugs showed only here, in the real containerized stack. No
+unit test or integration test caught them. I fixed all three (refer to
+`SOLUTION.md`, Step 3): a removed `bitnami/postgresql` image, an unpinned MinIO
+region that broke the presigned signing from inside the container, and a
+`tags.name` unique-constraint race under concurrency.
