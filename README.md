@@ -43,13 +43,13 @@ The upload is a procedure of three steps:
 The base path is `/document-management`. For the contract, refer to the
 [OpenAPI spec](docs/document-management-open-api.yml).
 
-| Method |          Path           |                    Function                     |
-|--------|-------------------------|-------------------------------------------------|
-| POST   | `/upload`               | Register the metadata. Return a presigned PUT URL. |
-| POST   | `/upload/{id}/complete` | Confirm the upload. Set it to `COMPLETED`.      |
+| Method |          Path           |                            Function                            |
+|--------|-------------------------|----------------------------------------------------------------|
+| POST   | `/upload`               | Register the metadata. Return a presigned PUT URL.             |
+| POST   | `/upload/{id}/complete` | Confirm the upload. Set it to `COMPLETED`.                     |
 | POST   | `/search`               | Filter by the user, the name, or the tags. Use pages and sort. |
-| GET    | `/download/{id}`        | Return a temporary presigned GET URL.           |
-| GET    | `/actuator/health`      | Show the liveness and the readiness.            |
+| GET    | `/download/{id}`        | Return a temporary presigned GET URL.                          |
+| GET    | `/actuator/health`      | Show the liveness and the readiness.                           |
 
 The search returns only the `COMPLETED` documents. The default order is the
 `created_at` in the decreasing sequence. To change the order, give a `sort`
@@ -75,17 +75,62 @@ still pass 10 of 10 with 256 MB.
 
 For the raw numbers, refer to [docs/memory-measurement.md](docs/memory-measurement.md).
 
-## Run
+## Setup and run
 
 You set all the configuration with environment variables. Refer to
 [docker/docker-compose.yml](docker/docker-compose.yml) and
 [application.yml](src/main/resources/application.yml).
 
+### Prerequisites
+
+- Docker and Docker Compose. This is the only requirement for option A.
+- JDK 17 and Maven (the `./mvnw` wrapper is in the repository). This is for
+  option B and for the tests.
+
+### Option A — full stack with Docker Compose (recommended)
+
+One command builds the service and starts every dependency:
+
 ```bash
 cd docker && docker-compose up --build
 ```
 
-To do the procedure:
+This starts PostgreSQL, MinIO, a one-shot job that creates the MinIO bucket, and
+the service. The service listens on `http://localhost:8080`. MinIO listens on
+`http://localhost:9000` and its console on `http://localhost:9001`.
+
+### Option B — run the service alone
+
+Start only the dependencies with Docker, then run the service with Maven:
+
+```bash
+cd docker && docker-compose up postgresql minio createbucket   # dependencies only
+./mvnw spring-boot:run                                          # the service, from the repo root
+```
+
+### Database setup
+
+The service uses PostgreSQL. It does not create the schema at runtime
+(`spring.jpa.hibernate.ddl-auto` is `none`). The schema and the tables come from
+[`docker/init-scripts/schema-init.sql`](docker/init-scripts/schema-init.sql).
+Docker Compose runs this script the first time it starts the database. The script
+creates the `document_schema` schema, the `documents`, `tags`, and
+`document_tags` tables, and the indices.
+
+You set the database connection with environment variables (the defaults are for
+a local run):
+
+|    Variable    |                   Default                    |       Purpose        |
+|----------------|----------------------------------------------|----------------------|
+| `DB_URL`       | `jdbc:postgresql://localhost:5432/challenge` | The JDBC URL         |
+| `DB_USERNAME`  | `postgres`                                   | The database user    |
+| `DB_PASSWORD`  | `postgres`                                   | The password         |
+| `DB_POOL_SIZE` | `5`                                          | The Hikari pool size |
+
+If you use your own PostgreSQL (not the Compose one), run the init script first,
+so the schema exists.
+
+### Exercise the flow
 
 1. Send `POST /document-management/upload` with the `user`, the `name`, and the
    `tags`. You get an `id` and an `uploadUrl`.
@@ -94,15 +139,30 @@ To do the procedure:
 4. Send `POST /document-management/search`. Then send
    `GET /document-management/download/{id}`.
 
-## Tests
+There is a Postman collection for this flow in
+[`docs/postman/`](docs/postman/).
+
+## Tests and code quality
 
 ```bash
 ./mvnw clean verify
 ```
 
-This command runs the unit tests. It also runs the Testcontainers integration
-tests against a real PostgreSQL and a real MinIO. For the coverage, run
-`./mvnw jacoco:report`. For the format, run `./mvnw spotless:apply`.
+This command runs the unit tests and the integration tests, and it builds the
+coverage report. The integration tests use Testcontainers against a real
+PostgreSQL and a real MinIO, so Docker must run.
+
+Summary of the last run:
+
+|   Area   |                            Result                             |
+|----------|---------------------------------------------------------------|
+| Tests    | **37 pass** (25 unit + 12 integration), 0 failures            |
+| Coverage | **94.1% lines** (JaCoCo), 75.9% branches                      |
+| Format   | Spotless (google-java-format + Markdown), 42 Java files clean |
+
+The build fails if the format is not clean. Run `./mvnw spotless:apply` to fix
+it. The full numbers, the per-package coverage, and the per-suite breakdown are
+in [docs/testing-and-quality.md](docs/testing-and-quality.md).
 
 ## Notes
 
@@ -122,5 +182,8 @@ These are the decisions. For all the details, refer to [SOLUTION.md](SOLUTION.md
 - [docs/CHALLENGE.md](docs/CHALLENGE.md) — the initial challenge brief
 - [SOLUTION.md](SOLUTION.md) — the approach, the reasons, the trade-offs
 - [docs/document-management-open-api.yml](docs/document-management-open-api.yml) — the API contract
+- [docs/testing-and-quality.md](docs/testing-and-quality.md) — the full test results and the coverage report
 - [docs/minio-local-setup.md](docs/minio-local-setup.md) — the MinIO local setup
 - [docs/memory-measurement.md](docs/memory-measurement.md) — the memory measurement evidence
+- [docs/postman/](docs/postman/) — the Postman collection for the end-to-end flow
+
