@@ -1,58 +1,98 @@
 # Document Management Service
 
-Backend service to upload, search, and download large PDF documents (up to 500 MB) under a tight container memory budget. Java 17, Spring Boot 3, PostgreSQL (metadata), MinIO (object storage).
+This backend service uploads, finds, and downloads large PDF documents. Each
+document can have a size of 500 MB. The service uses a small container memory
+budget. It uses Java 17, Spring Boot 3, PostgreSQL for the metadata, and MinIO
+for the object storage.
 
-Uploads are **presigned**: clients PUT bytes straight to MinIO, so file data never flows through the service. That is what makes **10 concurrent 500 MB uploads** achievable by design — the bytes never pressure the service's memory. The **50 MB target itself, however, is not reachable on the JVM**; it was measured, not assumed. See [Memory: the 50 MB constraint](#memory-the-50-mb-constraint) for the evidence and the decision.
+The service uses presigned uploads. Each client sends the bytes directly to
+MinIO. Thus the file data does not go through the service. This makes 10 parallel
+uploads of 500 MB possible. The bytes do not fill the memory of the service.
 
-- Approach, rationale, and trade-offs: [SOLUTION.md](SOLUTION.md)
-- Original assignment: [docs/CHALLENGE.md](docs/CHALLENGE.md)
+But you cannot get the 50 MB target on the JVM. I measured this target. I did
+not assume it. For the data and the decision, refer to
+[Memory: the 50 MB constraint](#memory-the-50-mb-constraint).
+
+- For the approach, the reasons, and the trade-offs, refer to [SOLUTION.md](SOLUTION.md).
+- For the initial task, refer to [docs/CHALLENGE.md](docs/CHALLENGE.md).
 
 ## Architecture
 
-Controller → Service → Repository, with a `StoragePort` abstraction over MinIO (`MinioStorageAdapter`) so the storage backend can be swapped without touching the service. Tags are a normalized many-to-many. Two MinIO endpoints are used: an internal one for server-side `statObject`/`removeObject`, and a public one only to sign URLs the external client can reach.
+The data flows from the Controller to the Service to the Repository. A
+`StoragePort` interface hides MinIO behind the `MinioStorageAdapter`. Thus you
+can change the storage backend. You do not change the service. The tags are a
+normalized many-to-many relation.
 
-Upload is a two-step flow:
+The service uses two MinIO endpoints:
 
-1. `POST /upload` (JSON metadata) — persists the document as `PENDING`, returns a presigned PUT URL.
-2. Client PUTs the PDF directly to that URL (→ MinIO).
-3. `POST /upload/{id}/complete` — validates real size/type via `statObject`, marks it `COMPLETED`.
+- An internal endpoint. The server uses it for the `statObject` and
+  `removeObject` operations.
+- A public endpoint. The service uses it only to sign the URLs. The external
+  client can get access to these URLs.
+
+The upload is a procedure of three steps:
+
+1. Send `POST /upload` with the JSON metadata. The service stores the document
+   as `PENDING`. The service returns a presigned PUT URL.
+2. Send the PDF directly to this URL. MinIO gets the bytes.
+3. Send `POST /upload/{id}/complete`. The service gets the correct size and type
+   with `statObject`. The service sets the document to `COMPLETED`.
 
 ## API
 
-Base path `/document-management`. Contract: [OpenAPI spec](docs/document-management-open-api.yml).
+The base path is `/document-management`. For the contract, refer to the
+[OpenAPI spec](docs/document-management-open-api.yml).
 
-| Method |          Path           |                      Purpose                       |
-|--------|-------------------------|----------------------------------------------------|
-| POST   | `/upload`               | Register metadata, return a presigned PUT URL      |
-| POST   | `/upload/{id}/complete` | Confirm the upload, mark it `COMPLETED`            |
-| POST   | `/search`               | Filter by user/name/tags, with pagination and sort |
-| GET    | `/download/{id}`        | Return a temporary presigned GET URL               |
-| GET    | `/actuator/health`      | Liveness/readiness                                 |
+| Method |          Path           |                    Function                     |
+|--------|-------------------------|-------------------------------------------------|
+| POST   | `/upload`               | Register the metadata. Return a presigned PUT URL. |
+| POST   | `/upload/{id}/complete` | Confirm the upload. Set it to `COMPLETED`.      |
+| POST   | `/search`               | Filter by the user, the name, or the tags. Use pages and sort. |
+| GET    | `/download/{id}`        | Return a temporary presigned GET URL.           |
+| GET    | `/actuator/health`      | Show the liveness and the readiness.            |
 
-Search returns `COMPLETED` documents only, ordered by `created_at` descending unless a `sort` is given. Multi-tag filtering uses AND semantics (a document must carry every requested tag).
+The search returns only the `COMPLETED` documents. The default order is the
+`created_at` in the decreasing sequence. To change the order, give a `sort`
+value. A search with more than one tag uses AND logic. Each document must have
+all the tags that you request.
 
 ## Memory: the 50 MB constraint
 
-Measured, not assumed: a Spring Boot + Hibernate JVM does not fit in 50 MB. With defaults it needs far more; even tuned (SerialGC, container-aware sizing, small stacks) the **startup floor is ~160 MB — ~3× the target**, driven by metaspace, not tuning. The service ships at a realistic **256 MB** and documents the blocker (GraalVM native, ~40–90 MB, is the evolution). Presigned PUT keeps bytes out of the service, so **10 concurrent uploads still pass 10/10** under 256 MB.
+I measured this constraint. I did not assume it. A JVM with Spring Boot and
+Hibernate cannot fit in 50 MB. With the default values, the JVM needs much more
+memory. You can tune the JVM with SerialGC, container-aware sizes, and small
+stacks. But the startup floor stays at approximately 160 MB. This is
+approximately 3 times the target. The metaspace causes this floor. The tuning
+does not.
 
-![Default vs tuned JVM under decreasing memory limits, and the 10-concurrent-upload load test](docs/assets/memory-load-test.png)
+Thus the service uses a practical value of 256 MB. This document shows the
+problem. The next step is GraalVM native. It uses approximately 40 MB to 90 MB.
 
-Raw numbers: [docs/memory-measurement.md](docs/memory-measurement.md).
+The presigned PUT keeps the bytes out of the service. Thus 10 parallel uploads
+still pass 10 of 10 with 256 MB.
+
+![The default JVM and the tuned JVM with smaller memory limits, and the load test of 10 parallel uploads](docs/assets/memory-load-test.png)
+
+For the raw numbers, refer to [docs/memory-measurement.md](docs/memory-measurement.md).
 
 ## Run
 
-All configuration is externalized via environment variables (see [docker/docker-compose.yml](docker/docker-compose.yml) and [application.yml](src/main/resources/application.yml)).
+You set all the configuration with environment variables. Refer to
+[docker/docker-compose.yml](docker/docker-compose.yml) and
+[application.yml](src/main/resources/application.yml).
 
 ```bash
 cd docker && docker-compose up --build
 ```
 
-Exercise the flow:
+To do the procedure:
 
-1. `POST /document-management/upload` with `{"user","name","tags"}` → receive `id` and `uploadUrl`.
-2. `PUT` the PDF bytes to `uploadUrl`.
-3. `POST /document-management/upload/{id}/complete`.
-4. `POST /document-management/search` and `GET /document-management/download/{id}`.
+1. Send `POST /document-management/upload` with the `user`, the `name`, and the
+   `tags`. You get an `id` and an `uploadUrl`.
+2. Send the PDF bytes to the `uploadUrl`.
+3. Send `POST /document-management/upload/{id}/complete`.
+4. Send `POST /document-management/search`. Then send
+   `GET /document-management/download/{id}`.
 
 ## Tests
 
@@ -60,21 +100,27 @@ Exercise the flow:
 ./mvnw clean verify
 ```
 
-Runs unit tests plus Testcontainers integration tests against real PostgreSQL and MinIO. Coverage: `./mvnw jacoco:report`. Formatting: `./mvnw spotless:apply`.
+This command runs the unit tests. It also runs the Testcontainers integration
+tests against a real PostgreSQL and a real MinIO. For the coverage, run
+`./mvnw jacoco:report`. For the format, run `./mvnw spotless:apply`.
 
 ## Notes
 
-Conscious decisions (full detail in [SOLUTION.md](SOLUTION.md)):
+These are the decisions. For all the details, refer to [SOLUTION.md](SOLUTION.md).
 
-- Memory: the 50 MB limit is not reachable on the JVM (measured, floor ~160 MB); the service ships at a realistic 256 MB. See [Memory: the 50 MB constraint](#memory-the-50-mb-constraint).
-- The presigned flow deviates from the contract's body-less `201` and adds a `/complete` endpoint.
-- Validation is minimal by design (metadata plus size ≤ 500 MB); the service never sees the bytes, so there is no content inspection.
+- Memory: you cannot get the 50 MB limit on the JVM. I measured a floor of
+  approximately 160 MB. Thus the service uses a practical value of 256 MB. Refer
+  to [Memory: the 50 MB constraint](#memory-the-50-mb-constraint).
+- The presigned procedure is different from the contract. The contract shows a
+  `201` with no body. This service adds a `/complete` endpoint.
+- The service uses minimal validation. It checks the metadata and a size of
+  500 MB or less. The service does not get the bytes. Thus it does not examine
+  the content.
 
 ## Docs
 
-- [docs/CHALLENGE.md](docs/CHALLENGE.md) — original challenge brief
-- [SOLUTION.md](SOLUTION.md) — approach, rationale, trade-offs
-- [docs/document-management-open-api.yml](docs/document-management-open-api.yml) — API contract
-- [docs/minio-local-setup.md](docs/minio-local-setup.md) — MinIO local setup
-- [docs/memory-measurement.md](docs/memory-measurement.md) — memory measurement evidence
-
+- [docs/CHALLENGE.md](docs/CHALLENGE.md) — the initial challenge brief
+- [SOLUTION.md](SOLUTION.md) — the approach, the reasons, the trade-offs
+- [docs/document-management-open-api.yml](docs/document-management-open-api.yml) — the API contract
+- [docs/minio-local-setup.md](docs/minio-local-setup.md) — the MinIO local setup
+- [docs/memory-measurement.md](docs/memory-measurement.md) — the memory measurement evidence
